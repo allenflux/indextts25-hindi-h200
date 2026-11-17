@@ -32,7 +32,9 @@ HINDI_FILES = 101
 HINDI_BYTES = 47225888374
 MAX_BYTES = 1000000000
 MAX_ROWS = 4096
-MAX_CANDIDATE_SPEAKERS = 32
+MAX_TARGET_SPEAKERS = 32
+DEFAULT_CANDIDATE_SPEAKERS = 32
+MAX_CANDIDATE_SPEAKERS = 128
 MAX_CANDIDATES_PER_SPEAKER = 16
 MAX_AUDIO_BYTES = 16 * 1024 * 1024
 TARGET_RATE = 24000
@@ -67,6 +69,11 @@ def _integer(value, label, minimum=1, maximum=None):
     if type(value) is not int or value < minimum or (maximum is not None and value > maximum):
         raise ImportBlocked("Invalid bounded integer: " + label)
     return value
+
+
+def candidate_cap(value, speakers):
+    _integer(speakers, "speakers", minimum=6, maximum=MAX_TARGET_SPEAKERS)
+    return _integer(value, "max_candidate_speakers", minimum=speakers, maximum=MAX_CANDIDATE_SPEAKERS)
 
 
 def duration_cap(value):
@@ -367,10 +374,11 @@ def decode_audio(cell, *, max_duration_seconds=6):
                  "conversion": "whole utterance; arithmetic stereo mean if needed; scipy.resample_poly; PCM_16; no target truncation or gain normalization"}
 
 
-def import_parquets(shards, output, *, speakers=6, clips_per_speaker=4, max_rows=MAX_ROWS, max_duration_seconds=6):
+def import_parquets(shards, output, *, speakers=6, clips_per_speaker=4, max_rows=MAX_ROWS, max_duration_seconds=6,
+                    max_candidate_speakers=DEFAULT_CANDIDATE_SPEAKERS):
     """Return a genuine prepared dataset or fail; no guessed speakers/partial success."""
     cap = duration_cap(max_duration_seconds)
-    _integer(speakers, "speakers", minimum=6, maximum=MAX_CANDIDATE_SPEAKERS)
+    limit = candidate_cap(max_candidate_speakers, speakers)
     _integer(clips_per_speaker, "clips_per_speaker", minimum=4, maximum=MAX_CANDIDATES_PER_SPEAKER)
     _integer(max_rows, "max_rows", maximum=MAX_ROWS)
     output = Path(output)
@@ -404,7 +412,7 @@ def import_parquets(shards, output, *, speakers=6, clips_per_speaker=4, max_rows
                     skipped["ascii_framing_punctuation"] += 1
                     continue
                 if speaker not in candidates:
-                    if len(candidates) >= MAX_CANDIDATE_SPEAKERS:
+                    if len(candidates) >= limit:
                         raise ImportBlocked("candidate speaker cap")
                     candidates[speaker] = 0
                 if speaker in completed or candidates[speaker] >= MAX_CANDIDATES_PER_SPEAKER:
@@ -470,6 +478,7 @@ def import_parquets(shards, output, *, speakers=6, clips_per_speaker=4, max_rows
     report = {"schema_version": 1, "kind": "ivr_hindi_import", "status": "ready", "repository": REPOSITORY,
               "revision": REVISION, "speakers": len(completed), "clips": len(selected_rows),
               "examined_rows": examined, "skipped": dict(skipped), "counts": manifest["counts"],
+              "max_candidate_speakers": limit, "candidate_speakers_considered": len(candidates),
               "min_duration_seconds": 1.0, "max_duration_seconds": cap, "target_audio_truncated": False,
               "official_test_used": False, "split_origin": "Speaker-held-out splits from official TRAIN shards only",
               "speaker_mapping": "Published speaker_id to stable SHA256-derived local identifier; never gender/filename inference",
@@ -484,6 +493,7 @@ def import_parquets(shards, output, *, speakers=6, clips_per_speaker=4, max_rows
 
 def run(args, *, api=None, download=None):
     cap = duration_cap(args.max_duration_seconds)
+    limit = candidate_cap(getattr(args, "max_candidate_speakers", DEFAULT_CANDIDATE_SPEAKERS), args.speakers)
     auth_environment(require_home=api is None)
     if api is None:
         from huggingface_hub import HfApi
@@ -498,13 +508,14 @@ def run(args, *, api=None, download=None):
     audit = output / "audit"
     audit.mkdir()
     plan.update(max_examined_rows=args.max_examined_rows, target_speakers=args.speakers,
-                clips_per_speaker=args.clips_per_speaker, max_duration_seconds=cap,
+                clips_per_speaker=args.clips_per_speaker, max_duration_seconds=cap, max_candidate_speakers=limit,
                 reuse_downloads_requested=args.reuse_downloads is not None, rights=rights)
     write_json(audit / "plan.json", plan)
     if not args.download:
         return {"status": "metadata_only", "repository": REPOSITORY, "revision": REVISION,
                 "planned_bytes": plan["planned_bytes"], "max_bytes": args.max_bytes,
-                "corpus_bytes_downloaded": 0, "max_duration_seconds": cap, "audit": str(audit / "plan.json")}
+                "corpus_bytes_downloaded": 0, "max_duration_seconds": cap, "max_candidate_speakers": limit,
+                "audit": str(audit / "plan.json")}
     if download is None:
         from huggingface_hub import hf_hub_download
         download = hf_hub_download
@@ -540,18 +551,18 @@ def run(args, *, api=None, download=None):
     try:
         result = import_parquets(local_shards(), output, speakers=args.speakers,
                                  clips_per_speaker=args.clips_per_speaker, max_rows=args.max_examined_rows,
-                                 max_duration_seconds=cap)
+                                 max_duration_seconds=cap, max_candidate_speakers=limit)
     finally:
         write_json(audit / "downloaded_files.json", {"files": inventory, "verified_file_bytes": transferred,
                                                      "newly_downloaded_file_bytes": new_bytes, "reused_file_bytes": reused_bytes,
                                                      "network_wire_bytes_measured": False,
-                                                     "import_completed": result is not None,
+                                                     "import_completed": result is not None, "max_candidate_speakers": limit,
                                                      "rights": rights, "attribution": ATTRIBUTION,
                                                      "license_url": LICENSE_URL})
     return {"status": result["status"], "clips": result["clips"], "speakers": result["speakers"],
             "counts": result["counts"], "verified_file_bytes": transferred,
             "newly_downloaded_file_bytes": new_bytes, "reused_file_bytes": reused_bytes,
-            "network_wire_bytes_measured": False, "max_duration_seconds": cap,
+            "network_wire_bytes_measured": False, "max_duration_seconds": cap, "max_candidate_speakers": limit,
             "prepared": str(output / "prepared"), "audio_root": str(output)}
 
 
@@ -566,6 +577,8 @@ def parser():
     p.add_argument("--max-shards", type=int, default=2)
     p.add_argument("--max-examined-rows", type=int, default=MAX_ROWS)
     p.add_argument("--speakers", type=int, default=6)
+    p.add_argument("--max-candidate-speakers", type=int, default=DEFAULT_CANDIDATE_SPEAKERS,
+                   help="Explicit publisher-ID candidate bound, default 32 and hard maximum 128; target speakers remain at most 32")
     p.add_argument("--clips-per-speaker", type=int, default=4)
     return p
 
@@ -575,7 +588,7 @@ def main(argv=None):
     try:
         duration_cap(args.max_duration_seconds)
         _integer(args.max_examined_rows, "max_examined_rows", maximum=MAX_ROWS)
-        _integer(args.speakers, "speakers", minimum=6, maximum=MAX_CANDIDATE_SPEAKERS)
+        candidate_cap(args.max_candidate_speakers, args.speakers)
         _integer(args.clips_per_speaker, "clips_per_speaker", minimum=4, maximum=MAX_CANDIDATES_PER_SPEAKER)
         result = run(args)
     except ImportBlocked as exc:

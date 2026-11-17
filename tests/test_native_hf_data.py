@@ -108,6 +108,36 @@ class HfMetadataTests(unittest.TestCase):
         self.assertFalse((args.output / "downloads").exists())
         with self.assertRaises(hf.ImportBlocked):
             hf.run(args, api=api, download=denied)
+    def test_candidate_limit_defaults_and_explicit_metadata_audit(self):
+        api, _ = fake_api()
+        def denied(**kwargs):
+            raise AssertionError("Metadata-only limit audit cannot download")
+        for limit in (None, 128):
+            arguments = ["--output", str(self.root / f"metadata-candidates-{limit}")]
+            if limit is not None:
+                arguments += ["--max-candidate-speakers", str(limit)]
+            args = hf.parser().parse_args(arguments)
+            result = hf.run(args, api=api, download=denied)
+            expected = 32 if limit is None else limit
+            self.assertEqual(args.max_candidate_speakers, expected)
+            self.assertEqual(result["max_candidate_speakers"], expected)
+            audit = json.loads((args.output / "audit" / "plan.json").read_text())
+            self.assertEqual(audit["max_candidate_speakers"], expected)
+            self.assertEqual(audit["target_speakers"], 6)
+            self.assertEqual(audit["max_examined_rows"], 4096)
+            self.assertLessEqual(audit["planned_bytes"], 1000000000)
+            self.assertFalse((args.output / "downloads").exists())
+
+    def test_invalid_candidate_limit_rejects_before_auth_or_output(self):
+        for limit, speakers in ((129, 6), (5, 6), (15, 16), (True, 6), (32.0, 6), ("32", 6), (None, 6), (128, 33)):
+            api, calls = fake_api()
+            args = hf.parser().parse_args(["--output", str(self.root / "rejected-candidates")])
+            args.max_candidate_speakers, args.speakers = limit, speakers
+            with self.subTest(limit=limit, speakers=speakers), self.assertRaises(hf.ImportBlocked):
+                hf.run(args, api=api)
+            self.assertEqual(calls, [])
+            self.assertFalse(args.output.exists())
+
     def test_rights_record_is_operator_declaration_not_acceptance(self):
         path = self.root / "rights.json"
         record = dict(dataset_repo=hf.REPOSITORY, revision=hf.REVISION, terms_accepted=True,
@@ -241,6 +271,8 @@ class HfAudioParquetTests(unittest.TestCase):
         audit = json.loads((output / "audit" / "downloaded_files.json").read_text())
         self.assertTrue(audit["import_completed"])
         self.assertEqual(len(audit["files"]), 2)
+        self.assertEqual(audit["max_candidate_speakers"], 32)
+        self.assertEqual(result["max_candidate_speakers"], 32)
 
     def test_insufficient_first_shard_downloads_exact_second_once(self):
         rows = self.rows()
@@ -359,6 +391,36 @@ class HfAudioParquetTests(unittest.TestCase):
         self.assertTrue(all(row["source_text_fields"]["normalized"] == row["text"] for row in raw))
         self.assertTrue(all(row["dataset_revision"] == hf.REVISION for row in raw))
         self.assertFalse(report["individual_voice_cloning_consent_independently_verified"])
+    def test_explicit_candidate_limit_includes_only_later_real_publishers(self):
+        sparse = [dict(speaker_id=f"sparse-publisher-{index}", duration=1.2, lang="Hindi",
+                       normalized="प्रारंभिक वक्ता " + chr(0x0915 + index) + " की अधूरी पंक्ति।",
+                       audio=self.audio(100 + index)) for index in range(32)]
+        qualified = self.rows()
+        path = self.parquet(sparse + qualified, "candidate-bound.parquet")
+        default_output = self.root / "default-candidates"
+        default_output.mkdir()
+        with self.assertRaisesRegex(hf.ImportBlocked, "only 0 complete speakers"):
+            hf.import_parquets([(hf.SHARDS[0][0], path)], default_output)
+        self.assertFalse((default_output / "import.json").exists())
+        self.assertTrue((default_output / "IMPORT_INCOMPLETE").exists())
+        output = self.root / "expanded-candidates"
+        output.mkdir()
+        report = hf.import_parquets([(hf.SHARDS[0][0], path)], output, max_candidate_speakers=128)
+        self.assertEqual((report["speakers"], report["clips"], report["examined_rows"]), (6, 24, 56))
+        self.assertEqual((report["max_candidate_speakers"], report["candidate_speakers_considered"]), (128, 38))
+        actual = list(read_jsonl(output / "input.jsonl"))
+        self.assertEqual({row["source_speaker_id"] for row in actual}, {row["speaker_id"] for row in qualified})
+        self.assertEqual({split: data["clips"] for split, data in report["counts"].items()}, {"train": 16, "val": 4, "test": 4})
+        self.assertEqual(validate(output / "prepared", output)["status"], "valid")
+        self.assertEqual(json.loads((output / "import.json").read_text())["max_candidate_speakers"], 128)
+
+    def test_direct_import_candidate_limit_rejects_before_creating_files(self):
+        for limit, speakers in ((129, 6), (5, 6), (15, 16), (32.0, 6), (True, 6), ("32", 6), (128, 33)):
+            output = self.root / "bad-direct-limit"
+            with self.subTest(limit=limit, speakers=speakers), self.assertRaises(hf.ImportBlocked):
+                hf.import_parquets([], output, speakers=speakers, max_candidate_speakers=limit)
+            self.assertFalse(output.exists())
+
     def test_only_selected_audio_is_waveform_decoded(self):
         rows = [dict(speaker_id="ignored", duration=8.0, lang="Hindi", normalized="यह लंबा नमूना है।", audio={"bytes": b"never decode", "path": "bad.wav"})] + self.rows()
         path = self.parquet(rows)
