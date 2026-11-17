@@ -80,6 +80,18 @@ class BackendTests(WorkspaceTest):
         with self.assertRaises(backend.PreflightError):
             backend.contained_file(model, "escaped")
 
+    def test_version_20_metadata_rejected_despite_complete_matching_hashes(self):
+        spec = backend.read_json(backend.ROOT / "upstream.lock.json")["model"]
+        files = {}
+        for relative in spec["minimum_files"]:
+            content = "version: 2.0\n" if relative == "config.yaml" else "synthetic CPU fixture, not model weights\n"
+            path = self.write("model/" + relative, content)
+            files[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
+        manifest = self.write("weights-version20.json", json.dumps({
+            "repository": spec["repository"], "snapshot_revision": "b" * 40, "files": files}))
+        with self.assertRaisesRegex(backend.PreflightError, "version: 2.5"):
+            backend.check_weights(self.root / "model", manifest, spec)
+
     def test_unknown_backend_fields_are_rejected(self):
         config = backend.read_json(backend.ROOT / "configs/hindi-h200.example.json")
         fields = set(config)

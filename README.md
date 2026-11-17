@@ -1,6 +1,6 @@
 # IndexTTS 2.5 Hindi / H200 训练准备
 
-这是原创的 Hindi 数据准备、训练前检查与实验操作项目，目标是在单张 H200 上探索 IndexTTS 2.5 的 Hindi LoRA。**不是已训练好的 Hindi 模型，也不是官方 Hindi 支持声明。** 没有捆绑 trainer、模型、语料或第三方源码。当前只验证 CPU 工具；没有进行 GPU 训练，没有测量 GPU 性能或质量。
+这是原创的 Hindi 数据准备、训练前检查与实验操作项目，目标是在单张 H200 上探索 IndexTTS 2.5 的 Hindi LoRA。**不是已训练好的 Hindi 模型，也不是官方 Hindi 支持声明。** **本仓库没有 trainer，当前不能独立端到端训练。** 没有捆绑模型、语料或第三方源码。当前只验证 CPU 工具；没有进行 GPU 训练，没有测量 GPU 性能或质量。
 
 官方 2.5 tokenizer 的 `hi` 是第 17 个零基语言槽，并存在 `<|hi|>` token；这仅说明接口预留。社区 Turkish 微调路线可作为外部后端参考：冻结声学后端，训练 GPT LoRA、目标语言/文本行与输出 heads。Hindi 可行性仍需实验。锁定版本与许可边界见 [NOTICE](NOTICE.md)、[上游核查](docs/UPSTREAM.md) 和 `upstream.lock.json`。
 
@@ -46,11 +46,11 @@ python3 -m hi_h200 validate .runtime/prepared --audio-root .runtime/demo
 4. 先运行小样本过拟合 gate，再做 100-step 吞吐/显存 smoke test；两个阶段通过后才扩大数据。示例参数是实验起点，不承诺 GPU 小时或音质。
 5. 使用 [评测与发布门槛](docs/EVALUATION.md) 做 Hindi 盲测与旧语言回归，记录导出前后差异。原始模型只读保存，adapter 按语言单独保存。
 
-`configs/hindi-h200.example.json` 使用真实后端参数名，JSON 是 YAML 的子集。生成器只写配置并打印实际 CLI，不执行训练。`scripts/check_backend.py --help` 显示源检查与本地前置条件检查接口；失败是明确阻塞，不会生成训练成功记录。脚本不支持 DeepSpeed/use_accel；不要据此假定 vLLM、ComfyUI 或并发动态 adapter 切换可用。
+`configs/hindi-h200.example.json` 使用真实后端参数名，JSON 是 YAML 的子集。生成器写出配置和预检记录并打印其路径，不执行训练；真实训练命令见 [H200 runbook](docs/H200.md)。`scripts/check_backend.py --help` 显示源检查与本地前置条件检查接口；失败是明确阻塞，不会生成训练成功记录。脚本不支持 DeepSpeed/use_accel；不要据此假定 vLLM、ComfyUI 或并发动态 adapter 切换可用。
 
 ## 验证范围
 
-最终 CPU 检查记录见 [VALIDATION.md](VALIDATION.md)。GPU、特征提取、训练、推理、模型下载、真实 Hindi 数据对齐、端到端兼容性及质量均未验证。上游模型的文本前端可能进一步替换标点；务必检查实际 token、音素覆盖与试听，不能把 NFC 处理等同于完整 Hindi 文本前端。
+最终 CPU 检查记录见 [VALIDATION.md](VALIDATION.md)。GPU 训练、真实特征提取、推理、模型加载、Hindi 数据对齐、端到端兼容性及质量均未验证。上游模型的文本前端可能进一步替换标点；务必检查实际 token、音素覆盖与试听，不能把 NFC 处理等同于完整 Hindi 文本前端。
 
 本仓库不自动上传数据，也不创建 GPU 作业。`.gitignore` 排除数据、权重、adapter、缓存与常见凭据；提交前仍须检查 staged 文件。原创代码 MIT，外部模型与训练后端另循各自权利条件。
 

@@ -21,3 +21,11 @@
 官方 [LICENSE](https://github.com/index-tts/index-tts/blob/d9e41aac89fd00b3d71497fddb287b7f24613712/LICENSE) 明确包含微调与 LoRA 等衍生物，要求保留原始声明和协议，并规定下游分发条件。请同时查看 [中文版本](https://github.com/index-tts/index-tts/blob/d9e41aac89fd00b3d71497fddb287b7f24613712/LICENSE_ZH.txt) 与所用模型 snapshot 的模型卡。这里记录授权边界，不把本仓库 MIT 扩展到它们。
 
 模型 snapshot、权重哈希、实际环境包版本未在本次会话锁定，因为未下载模型、未启动训练环境。部署方需提供完整的 revision + 文件哈希清单，保存安装解析结果和 `pip freeze --all`、CUDA/驱动版本，运行前检查 checkpoint config 确实为 2.5。部分上游模块可首次联网取辅助模型；准备好本地文件后用离线环境变量做加载试验，任何缺失应停机补齐，不要把 source-only 检查当成运行兼容性证明。
+
+## 可合法实现的训练路径
+
+对上述固定官方 commit 的完整树和入口定义做了只读核查：没有发现可直接启动2.5 GPT微调的官方CLI/流水线。pyproject注册的是推理入口，TRT目录用于转换/推理；maskgct中的codec训练组件不能当作2.5 GPT微调入口。参见 [官方入口](https://github.com/index-tts/index-tts/blob/d9e41aac89fd00b3d71497fddb287b7f24613712/pyproject.toml#L105)。因此当前不能以替换一个启动命令来消除外部trainer阻塞。
+
+获得社区明确授权后接入其后端是较短路径；否则可以在遵守官方许可的前提下原创实现。官方 [UnifiedVoice.forward](https://github.com/index-tts/index-tts/blob/d9e41aac89fd00b3d71497fddb287b7f24613712/indextts/gpt/model_v2.py#L596) 返回latents，没有现成训练loss或language-ID参数；[get_logits](https://github.com/index-tts/index-tts/blob/d9e41aac89fd00b3d71497fddb287b7f24613712/indextts/gpt/model_v2.py#L528) 也没有attention_mask参数。原创后端必须正确处理语言conditioning、teacher-forcing对齐与padding/CE mask、Conv1D LoRA、冻结与行梯度/weight-decay隔离、BF16累积、评测、导出重载及完整恢复。可先用batch1加累积缩小范围，再验证padded batching。
+
+这是后续实质模型开发，不是当前已实现的能力。需要先固定合格2.5模型与有授权且对齐的Hindi数据，经过真实forward/backward、过拟合、STOP/恢复和100-update验收后才能宣称端到端训练可用；本仓库没有用mock测试替代这些步骤。
