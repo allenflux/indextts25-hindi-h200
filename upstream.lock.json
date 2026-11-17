@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "reviewed_on": "2026-11-17",
+  "official": {
+    "repository": "https://github.com/index-tts/index-tts",
+    "commit": "d9e41aac89fd00b3d71497fddb287b7f24613712",
+    "required_paths": [
+      "indextts/infer_v2_5.py",
+      "indextts/utils/tokenizer.py",
+      "pyproject.toml",
+      "uv.lock"
+    ],
+    "license_status": "Review upstream LICENSE and separately the 2.5 model terms; no license grant from this toolkit."
+  },
+  "backend": {
+    "repository": "https://github.com/oberkayb/index-tts-2.5-ft",
+    "commit": "abdcbda0f6624d87134da8d1f4d482edac4a2fb9",
+    "required_paths": [
+      "scripts/train.py",
+      "scripts/check_setup.py",
+      "scripts/preprocess.py",
+      "scripts/build_pairs.py",
+      "scripts/extract_adapter.py",
+      "itts25ft/lang.py",
+      "itts25ft/textfront.py",
+      "requirements.txt"
+    ],
+    "license_status": "No LICENSE/COPYING/NOTICE found in the reviewed tree. This project contains no copied backend code. Separate permission is a prerequisite for use."
+  },
+  "model": {
+    "repository": "IndexTeam/IndexTTS-2.5",
+    "revision": null,
+    "status": "No weights downloaded or verified. User must pin actual model snapshot and hashes before rendering a runnable configuration.",
+    "minimum_files": [
+      "config.yaml",
+      "gpt.pth",
+      "codec.pth",
+      "multilingual_zh_ja_yue_char_del.tiktoken"
+    ]
+  },
+  "runtime": {
+    "python": "3.10 or 3.11 for upstream GPU environment; CPU toolkit tested independently",
+    "dependencies": "Use official uv.lock at pinned source; backend requirements are not a fully transitive lock. Freeze and archive the resolved GPU environment before smoke test.",
+    "gpu_tested": false
+  },
+  "language": {
+    "code": "hi",
+    "embedding_row": 17,
+    "control_token": "<|hi|>",
+    "official_release_support_claimed": false
+  }
+}
