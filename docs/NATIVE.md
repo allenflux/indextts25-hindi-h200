@@ -6,7 +6,7 @@
 
 ## 环境与源码
 
-在独立数据盘目录定义`WORK`和`REPO`，不要覆盖ComfyUI工程或原有模型。所有模型、缓存、认证、语料、特征和run输出放在`WORK`中、仓库外。容器overlay不能作为恢复位置；应确认持久卷及节点亲和/备份策略。
+在独立数据盘目录定义`WORK`和`REPO`，不要覆盖ComfyUI工程或原有模型。模型、缓存、语料、特征和run输出放在`WORK`中、仓库外；认证目录必须另行选择，禁止放入ComfyUI实际served的input/output/temp根内。若`WORK`本身是output持久卷，也不能使用`$WORK/hf-home`保存认证。容器overlay不能作为恢复位置；应确认持久卷及节点亲和/备份策略。
 
 ```bash
 export WORK=/your/persistent/isolated/workspace
@@ -18,7 +18,7 @@ export PYTHONDONTWRITEBYTECODE=1
 export TORCH_FORCE_WEIGHTS_ONLY_LOAD=1
 export TMPDIR="$WORK/tmp"
 export XDG_CACHE_HOME="$WORK/cache"
-export HF_HOME="$WORK/hf-home"
+# HF_HOME只在需要认证的进程中另行设置，见下方“Hindi 数据与特征”。
 export HF_HUB_CACHE="$WORK/cache/hub"
 export NUMBA_CACHE_DIR="$WORK/cache/numba"
 export TIKTOKEN_CACHE_DIR="$WORK/cache/tiktoken"
@@ -48,7 +48,16 @@ python -m hi_h200_native.assets --stage extract   --destination "$WORK/assets/of
 
 ## Hindi 数据与特征
 
-用户必须本人处理gated条款。登录只用独立`HF_HOME`，不要发送token或把它写进命令、配置、日志/仓库。若CLI提示没有Git credential helper，HF API登录仍可能已经成功；无需因此启用全局明文credential store。先核对实际账号及读取权限，再选择配置`Hindi`。
+用户必须本人处理gated条款。登录只用独立`HF_HOME`，不要发送token或把它写进命令、配置、日志/仓库。认证前必须确认目录在ComfyUI实际served的input/output/temp之外；同UID的ComfyUI进程仍可读取0700/0600文件，这些权限不能充当HTTP文件路由或进程隔离。可使用专属临时认证目录，但先确认系统`/tmp`也不属于任何served根；缓存仍可由`HF_HUB_CACHE`留在`WORK`。迁移后旧served路径不得保留认证副本或指向新目录的符号链接。
+
+只在需要Hub认证的项目进程中设置已确认的`AUTH_HOME`，并在导入Hub库前生效：
+
+```bash
+: "${AUTH_HOME:?Set the dedicated authentication directory outside all served roots}"
+export HF_HOME="$AUTH_HOME"
+```
+
+临时认证目录没有持久性保证；容器被替换或临时盘丢失后，需要用户本人重新登录，不从聊天、日志或checkpoint恢复token。完整模型、特征和checkpoint已在持久盘时，离线训练及恢复不需要token；保持离线标志，不因认证丢失触发下载或不安全加载。若CLI提示没有Git credential helper，HF API登录仍可能已经成功；无需因此启用全局明文credential store。先核对实际账号及读取权限，再选择配置`Hindi`。
 
 受限数据入口`hi_h200_native.hf_data`只针对锁定IndicVoices-R Hindi训练分片，默认元数据预检，实际下载需明确字节上限和本地rights record。选择最多两个训练分片，不遍历/下载整个Hindi子集，不把官方test加入训练；边界和具体CLI见该模块`--help`。它会按明确speaker_id选短clip并转换为24k/mono/PCM16，保留源revision、行标识、原文与转换记录。许可记录是操作依据，不能称为独立核实所有个人声音权利。
 

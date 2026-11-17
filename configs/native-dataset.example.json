@@ -1,4 +1,5 @@
 {
+  "schema_version": 1,
   "official_repo": "../external/index-tts",
   "model_dir": "../assets/official-extract",
   "model_manifest": "../assets/official-extract/model-manifest.json",

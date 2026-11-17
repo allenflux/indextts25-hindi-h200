@@ -1,7 +1,9 @@
 """Original native data checks with real NumPy files and synthetic PCM only."""
+import base64
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import struct
 import tempfile
@@ -119,6 +121,90 @@ class NativeDataTests(unittest.TestCase):
         return load_native_dataset(self.data_config, tokenizer=self.tokenizer,
                                    asset_verifier=lambda *args: (self.config, self.identity),
                                    extractor_identity_provider=lambda: dict(self.expected_extractor))
+
+    @unittest.skipUnless(TORCH and importlib.util.find_spec("transformers") is not None
+                         and importlib.util.find_spec("whisper") is not None
+                         and Path(os.environ.get("HI_H200_OFFICIAL_REPO", ROOT / ".runtime/external-official")).is_dir(),
+                         "Actual pinned official tiny model/tokenizer dependencies required")
+    def test_example_config_drives_real_tiny_assets_and_native_dataset_validation(self):
+        """The shipped JSON is the entry point; missing schema must fail here.
+
+        This uses real random tiny official weights, byte-BPE and physical PCM/
+        NPZ files, not a pretrained snapshot or an audio-extraction quality test.
+        Only the handcrafted features' test-only extractor identity is injected.
+        """
+        import torch
+        from hi_h200_native.data import encoded_text, official_tokenizer
+        from hi_h200_native.model import import_official_model, load_verified_base
+        official = Path(os.environ.get("HI_H200_OFFICIAL_REPO", ROOT / ".runtime/external-official")).resolve()
+        # An actual tiny official base can be saved and strictly reloaded; the
+        # name/revision below explicitly serves as a local synthetic test fixture.
+        tiny = {"layers":1, "model_dim":16, "heads":2, "max_text_tokens":128,
+                "max_mel_tokens":24, "max_conditioning_inputs":3,
+                "number_text_tokens":512, "number_mel_codes":34,
+                "start_text_token":0, "stop_text_token":1,
+                "start_mel_token":32, "stop_mel_token":33, "checkpointing":False,
+                "emo_condition_module":{"output_size":16,"linear_units":32,"attention_heads":2,
+                                        "num_blocks":1,"input_layer":"linear","perceiver_mult":1}}
+        actual_config = {"version":"2.5", "gpt":tiny, "semantic_codec":{"codebook_size":32}}
+        (self.model / "config.yaml").write_text(json.dumps(actual_config))
+        ranks = "".join(base64.b64encode(bytes([i])).decode() + " " + str(i) + "\n" for i in range(256))
+        (self.model / "multilingual_zh_ja_yue_char_del.tiktoken").write_text(ranks)
+        (self.model / "LICENSE").write_bytes((official / "LICENSE").read_bytes())
+        cls = import_official_model(official)
+        with torch.random.fork_rng(devices=[]):
+            torch.manual_seed(321)
+            base = cls(**tiny, spk_cond_mode="campplus", use_accel=False)
+        torch.save(base.state_dict(), self.model / "gpt.pth")
+        files = {name:file_sha256(self.model / name) for name in
+                 ("config.yaml","multilingual_zh_ja_yue_char_del.tiktoken","LICENSE","gpt.pth")}
+        self.model_manifest.write_text(json.dumps({"repository":"IndexTeam/IndexTTS-2.5",
+                                                   "snapshot_revision":"f" * 40,"files":files}))
+        _, config, identity = load_verified_base(official, self.model, self.model_manifest)
+        self.assertEqual(config, actual_config)
+        self.assertEqual(identity["config_sha256"], files["config.yaml"])
+        tokenizer = official_tokenizer(official, self.model)
+        records, inventory = [], []
+        for index, row in enumerate(self.rows):
+            arrays = self.arrays(row, index)
+            arrays["text_ids"] = self.np.asarray(encoded_text(tokenizer, row["text_norm"]), dtype="int32")
+            filename = row["id"] + ".npz"
+            self.np.savez(self.features / filename, **arrays)
+            records.append(dict(id=row["id"],speaker_id=row["speaker_id"],text_norm=row["text_norm"],
+                                feature=filename,text_len=len(arrays["text_ids"]),code_len=len(arrays["codes"])))
+            inventory.append(dict(id=row["id"],feature=filename,sha256=file_sha256(self.features / filename),
+                                  audio_pcm_sha256=row["audio_sha256"],text_sha256=row["text_sha256"]))
+        self.write_manifest(records)
+        self.prov.update({key:identity[key] for key in
+                          ("official_commit","model_snapshot_revision","model_manifest_sha256","tokenizer_sha256")})
+        self.prov.update(features=inventory,feature_manifest_sha256=file_sha256(self.manifest))
+        self.write_provenance()
+        example = json.loads((ROOT / "configs/native-dataset.example.json").read_text())
+        # Fill only keys already supplied by the example; never supply a missing
+        # schema_version from the implementation or a hand-written test config.
+        replacements = {**self.options, "official_repo":str(official)}
+        for key in example:
+            if key != "schema_version" and key in replacements:
+                example[key] = replacements[key]
+        self.data_config.write_text(json.dumps(example))
+        dataset = load_native_dataset(self.data_config,
+                    extractor_identity_provider=lambda: dict(self.expected_extractor))
+        self.assertEqual(len(dataset), 2)
+        batch = dataset[0]
+        self.assertEqual(batch["text_ids"].tolist(), encoded_text(tokenizer, self.rows[0]["text_norm"]))
+        self.assertEqual(dataset.identity["model_manifest_sha256"], file_sha256(self.model_manifest))
+        self.assertNotEqual(batch["id"], batch["prompt_id"])
+        self.assertEqual(tuple(batch["spk_emb"].shape), (192,))
+        self.assertFalse(dataset.identity["runtime_audio_feature_parity_verified"])
+        # Demonstrate the production schema boundary explicitly for the exact
+        # previously broken example, rather than merely asserting a JSON value.
+        del example["schema_version"]
+        self.data_config.write_text(json.dumps(example))
+        with self.assertRaisesRegex(NativeDataError, "schema/split"):
+            load_native_dataset(self.data_config)
+        from hi_h200_native.extract import ExtractionError, extract_config
+        with self.assertRaisesRegex(ExtractionError, "Invalid native extraction configuration"):
+            extract_config(self.data_config, device="cpu")
 
     def test_changed_extractor_recipe_or_source_requires_reextraction(self):
         for field, value in (("implementation", "foreign-extractor.v1"),

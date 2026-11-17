@@ -20,6 +20,8 @@
 - 只加载固定官方 revision、通过完整文件哈希清单核验的可信资产，或本次自己训练且与 run/config/data/base 身份绑定的 checkpoint。SHA 验证字节一致性，不能单独证明来源、许可或安全性。
 - 保持 `torch.load(..., weights_only=True)`，不回退到 `weights_only=False`，不为未知文件添加 `safe_globals`。官方 helper 的间接加载也在本项目进程设置 `TORCH_FORCE_WEIGHTS_ONLY_LOAD=1`；若受限加载失败，停止并检查，不绕过。
 - 在资产已齐备后，计算进程设置 `HF_HUB_OFFLINE=1`、`TRANSFORMERS_OFFLINE=1`。`trust_remote_code=False` 本身也不是完整安全边界；必须结合固定配置、允许列表和本地加载。原生路线不使用 HF `Trainer`、TensorFlow 权重转换、MarianTokenizer 或任意正则优化器配置。
-- 所有缓存、输出、认证与依赖 overlay 只在本项目隔离目录；不修改现有 ComfyUI、全局包或服务环境。任何新环境都先通过实际 CPU、tiny BF16、停止/恢复与完整资产加载检查，再推进对应真实任务。
+- 缓存、输出与依赖 overlay 留在项目隔离目录；HF认证单独放在ComfyUI所有实际served的input/output/temp根之外。`WORK`若位于output持久卷，认证不能随之放在`WORK/hf-home`；0700/0600不能隔离同UID的ComfyUI文件读取。专属临时目录也须先确认不在served根内，不保留旧served路径副本或符号链接回链。缓存可继续留在`WORK`。
+- 临时认证随容器替换/临时盘丢失后，需要用户本人重新登录；不读取或输出token内容，不修改全局credential store。持久模型、特征和checkpoint齐备的离线训练/恢复不需要token。认证迁移不构成对既往访问的无泄漏证明。
+- 不修改现有 ComfyUI、全局包或服务环境。任何新环境都先通过实际 CPU、tiny BF16、停止/恢复与完整资产加载检查，再推进对应真实任务。
 
 不盲目升级 Transformers 到5.x来消除计数：这会越过固定官方4.52.1接口，必须独立做兼容性验证。可评估新的 Torch>=2.10 安装组合，但在验证前不改写已测试的旧 lock、不把未知组合标成可用。当前受控 GPU gate 和有界数据准备可以按上述边界继续；这些限制不等于准许接收不可信 checkpoint 或开放推理服务。
