@@ -53,6 +53,36 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src \
 
 先自行创建已被 `.gitignore` 排除的 `outputs/acceptance` 父目录，输出目录本身必须全新。结果与失败日志仅保留本地。记录每阶段是否开始/完成、输入 prompt/text hash、token hash、选择的配置与 GPT hash、seed、禁用开关、资源观测和输出 WAV/PCM hash。`audio.wav` 只在真实生成及非空 PCM 检查通过后发布；失败保留 `failure.json` 与可能的 partial，不能当作成功音频。先分别运行 `--variant original` 与 `--variant merged` 到不同新目录，使用相同 prompt/text/seed，再人工听评 Hindi 可懂度、发音、音色、截断与异常。WAV 存在不等于质量达标。
 
+## 显式 KV cache A/B 实验
+
+默认保留官方推理 wrapper 的 `kv_cache=True`。可选 `--no-kv-cache` 只把实际、来源已核验的官方 `GPT2InferenceModel` wrapper 现有布尔开关设为 `False`，改为完整上下文生成；不修改官方 positions 逻辑、权重或训练。它是独立实验开关，没有音质改善承诺。
+
+真实官方 `generate` 在随机 tiny 配置中已观察到位置输入差异：cached 路线为 `[0]`、`[2]`、`[3]`，full-context 路线为 `[0]`、`[0,1]`、`[0,1,2]`。这仅证明所观察到的代码行为差异，不能认定为官方 bug，也不能认定为 Hindi 失败原因。截至本节记录，H200 的 no-cache 实验尚未运行；tiny 结果与已完成的 cached WAV 均不能证明 no-cache 的 GPU 行为或质量。
+
+先按上一节检查共享资源。每组 A/B 固定同一 `variant`、权重、文本、prompt、seed 和全部生成参数，使用两个全新输出目录；不要同时运行以免争抢 GPU。以下示例只改变 cache 开关和输出目录，资产路径需替换为实际已核验的路径：
+
+```bash
+common_synth_args=(
+  --workspace-root "$WORK" --official-repo "$WORK/official"
+  --model-dir "$WORK/assets/official-synth"
+  --model-manifest "$WORK/assets/official-synth/model-manifest.json"
+  --merged-bundle "$WORK/exports/hindi-gpt" --variant merged
+  --prompt "$WORK/outputs/acceptance/reference.wav"
+  --text 'नमस्ते। यह हिन्दी भाषा का एक छोटा परीक्षण है।'
+  --seed 1234 --max-mel-tokens 256
+  --execute --allow-cuda --gpu-id 0
+  --min-free-gpu-mib 65536 --min-free-ram-mib 32768 --max-utilization 5
+)
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src \
+  python -m hi_h200_native.synth "${common_synth_args[@]}" \
+  --output-dir "$WORK/outputs/acceptance/hindi-merged-cache-001"
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src \
+  python -m hi_h200_native.synth "${common_synth_args[@]}" --no-kv-cache \
+  --output-dir "$WORK/outputs/acceptance/hindi-merged-full-context-001"
+```
+
+如需原始模型对照，再固定 `--variant original` 做独立一组 A/B，不在同一组内更换权重。检查每次 `result.json` 的 `inference_cache`：默认 `enabled=true`，实验为 `enabled=false`、`experimental=true`。仅 metadata preflight 的 `actual_wrapper_verified=false` 不能证明实际模式已生效；真实 wrapper 核验后才记录 `actual_wrapper_verified=true`，同时保留 `upstream_positions_modified=false` 与 `quality_improvement_verified=false`。分别审听两份完整 WAV，并使用相同 ASR 模型/参数辅助比较；更低 ASR 错误率也不等于音质或发布门槛通过。
+
 一个全局 merged GPT 会改变共享 LoRA 和输出 head 的行为，不能保证旧语言不变。默认继续为其他语言保留原始 GPT，把 Hindi 实验目录独立挂载；发布前还需独立旧语言回归与许可审核。此入口只生成本地验收文件，不发布权重或上传私人音频。
 
 ## 已有 CPU 覆盖

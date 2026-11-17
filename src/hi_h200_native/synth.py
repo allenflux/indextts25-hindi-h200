@@ -311,7 +311,9 @@ def metadata_preflight(args):
                         "raw_text_sha256": hashlib.sha256(args.text.encode()).hexdigest() if args.text else None,
                         "prompt": prompt},
               "models_loaded": False, "cuda_accessed": False, "synthesis_executed": False,
-              "runtime_import_verified": False, "quality_verified": False}
+              "runtime_import_verified": False, "quality_verified": False,
+              "inference_cache":{"enabled":not args.no_kv_cache,"experimental":args.no_kv_cache,
+                                 "actual_wrapper_verified":False,"quality_improvement_verified":False}}
     state = {"workspace": workspace, "source": source, "original": original, "merged": merged,
              "output": output, "config": config, "text": text, "prompt": Path(args.prompt).resolve() if args.prompt else None}
     return report, state
@@ -566,6 +568,30 @@ def probe_official_import(official_repo, workspace_root, output_dir):
     return report
 
 
+def configure_kv_cache_experiment(tts, official_repo, *, no_kv_cache=False):
+    """Only toggle the real official inference wrapper's existing cache control.
+
+    Default retains stock True. This is an explicit experiment, not a patch to
+    upstream positions, weights, teacher forcing, or an assertion of better audio.
+    """
+    source = verify_source(official_repo)
+    module = importlib.import_module("indextts.gpt.model_v2")
+    wrapper = getattr(getattr(tts, "gpt", None), "inference_model", None)
+    if type(wrapper) is not module.GPT2InferenceModel or not Path(inspect.getfile(type(wrapper))).resolve().is_relative_to(source):
+        raise SynthesisError("Cache experiment requires the actual reviewed official GPT2InferenceModel")
+    if type(getattr(wrapper, "kv_cache", None)) is not bool or wrapper.kv_cache is not True:
+        raise SynthesisError("Official wrapper must expose its stock boolean kv_cache=True before selection")
+    if type(no_kv_cache) is not bool:
+        raise SynthesisError("Cache experiment selector must be a boolean")
+    if no_kv_cache:
+        wrapper.kv_cache = False
+    if wrapper.kv_cache is not (not no_kv_cache):
+        raise SynthesisError("Official wrapper did not retain the selected cache mode")
+    return {"enabled":wrapper.kv_cache, "experimental":no_kv_cache,
+            "actual_wrapper_verified":True, "upstream_positions_modified":False,
+            "quality_improvement_verified":False}
+
+
 def execute_once(args, report, state):
     if not args.allow_cuda:
         raise SynthesisError("No actual generation without explicit --allow-cuda")
@@ -626,6 +652,7 @@ def execute_once(args, report, state):
             tts = constructor(cfg_path=str(config_path), model_dir=str(state["original"]), use_bf16=True,
                               device="cuda:0", **DISABLED_FLAGS)
             report["models_loaded"] = True
+            report["inference_cache"] = configure_kv_cache_experiment(tts, state["source"], no_kv_cache=args.no_kv_cache)
             if Path(tts.gpt_path).resolve() != selected.resolve() or tts.qwen_emo is not None or tts.use_accel or tts.use_cuda_kernel or tts.use_torch_compile:
                 raise SynthesisError("Official runtime did not retain the required checkpoint/disabled acceleration settings")
             if len(tts.split_text_by_tokens(state["text"], args.max_text_tokens, prefix)) != 1:
@@ -692,6 +719,7 @@ def main(argv=None):
     parser.add_argument("--seed", type=int, default=1234)
     parser.add_argument("--max-text-tokens", type=int, default=120)
     parser.add_argument("--max-mel-tokens", type=int, default=256)
+    parser.add_argument("--no-kv-cache", action="store_true", help="Explicit experimental full-context generation; default retains official KV cache, no audio-quality improvement is implied")
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--allow-cuda", action="store_true")
     parser.add_argument("--gpu-id", default="0")

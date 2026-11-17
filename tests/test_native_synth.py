@@ -46,6 +46,7 @@ class NativeSynthesisMetadataTests(unittest.TestCase):
                                      text=True, capture_output=True, timeout=20)
         self.assertEqual(help_result.returncode, 0)
         self.assertIn("--allow-cuda", help_result.stdout)
+        self.assertIn("--no-kv-cache", help_result.stdout)
 
     @unittest.skipUnless(OFFICIAL.is_dir(), "Requires the pinned official source, no model weights")
     def test_exact_source_frontend_and_devanagari_policy(self):
