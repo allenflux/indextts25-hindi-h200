@@ -62,3 +62,11 @@ tokens.json
 *.run-binding.json
 *.resume.json
 recovery/
+# Native training and isolated Hub authentication stay local.
+hf-home/
+.hf-home/
+*.native-run.json
+.*.native-launch.lock
+assets-local/
+*.parquet
+*.jsonl

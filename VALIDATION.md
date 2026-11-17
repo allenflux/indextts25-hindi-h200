@@ -1,31 +1,43 @@
-# CPU 验证记录
+# 实际验证记录
 
-验证日期：2026-11-17。工作目录与临时文件均位于已核实的 CodexData APFS 挂载；没有修改其他项目或下载模型/语料。GPU/训练依赖未安装；仅为构建验证在本项目 `.runtime` 隔离安装了setuptools84.1.0，没有改动系统Python环境。测试只读借用现有解释器，禁用 pycache，临时文件写入本项目 `.runtime`。
+日期：2026-11-17。源码、模型源码checkout、测试环境、缓存和临时文件位于已核实的CodexData挂载；现有ComfyUI代码、模型和Python包未改动。官方源码完整LICENSE及LICENSE_ZH保留在独立checkout。没有复制或导入未许可社区实现。
 
-## 已实际执行
+## 本机完整CPU套件
 
-- Python **3.13.5**、NumPy **2.5.4**：完整测试 **59/59通过**（32数据测试、18后端/特征测试、9检查点预检测试）。检查点测试使用合成状态/mock Torch，未实跑真实Torch文件加载或trainer恢复。
-- 系统Python无NumPy时：核心和静态后端测试通过，特征测试明确跳过；不把跳过当作验证通过。GPU环境仍应按官方锁定依赖使用Python3.11与NumPy2.2.6等约束。
-- 六个合成PCM tone的 `make_demo → prepare → validate` CLI通过，每个split两条clip、一位synthetic speaker；没有真实语音对齐或质量含义。
-- 11个 CLI help 检查通过，14个Python文件AST解析、JSON/TOML解析和环境脚本 `sh -n` 通过。
-- 只读在内存解析固定社区commit的实际argparse：示例配置38个key，没有未知字段；确认 `--output-dir` 为required CLI参数。未保存上游源码到项目。
-- 缺少源目录时后端预检以exit2、`status: blocked`明确失败，未伪装成训练准备成功。
-- 独立输入/泄漏审查：路径穿越、符号链接、控制/方向字符、特殊token、数字/货币、重复JSON key/NaN、PCM/NFC去重、speaker隔离、prompt不同clip、backend清单篡改、特征遗漏/陈旧文字、NPZ恶意shape/no-pickle、未知配置和旧审计哈希均有检查或测试覆盖。
+CPython3.11.15 / Torch2.8.0 / torchaudio2.8.0 / Transformers4.52.1 / NumPy2.2.6：**148/148通过，无跳过**。
 
-## 这些测试证明什么
+| 范围 | 通过数 | 实际内容 |
+|---|---:|---|
+| 原始数据/社区接口预检/社区checkpoint检查 | 59 | 合成WAV、输入/路径/Unicode/泄漏、合成状态与mock安全加载；未执行社区后端 |
+| 原生模型 | 9 | 真实官方微型UnifiedVoice前向/反向、20次AdamW更新loss下降、生成前向logits对齐、LoRA/冻结行 |
+| 原生数据 | 11 | 真实NPZ、严格provenance/token/speaker/hash；测试tokenizer/资产身份为显式夹具 |
+| 原生提取组件 | 19 | 实际CAMPPlus+fbank、tinyEnhancedCodec量化/解码、GPTemotion和Seamless前端，随机权重/合成音频 |
+| 原生恢复 | 10 | 实际Torch文件、真实微型GPT更新、STOP/恢复与连续训练参数/AdamW/scheduler/RNG/cursor相同，SIGTERM边界保存 |
+| 原生CLI/集成 | 8 | 实际NativeFeatureDataset、官方tokenizer类、微型GPT执行真实更新；明确手工合成特征 |
+| 公开资产助手 | 8 | mock元数据、真实小文件/哈希/预算/原子发布，无大模型下载 |
+| Hindi导入器 | 18 | 真实小Parquet与48k→24k转换、lazy分片和授权/ID/预算；网络mock，无真实语料 |
+| 合并GPT导出 | 6 | 实际官方模型训练后合并，由freshstock模型及官方checkpoint loader严格加载，logits/loss容差内相同 |
 
-数据与特征测试生成自己的合成WAV/NPZ，不读取私人数据。NumPy数组是真实加载/检查；frontend对象与checkpoint内容的单元测试使用合成对象，**没有执行实际IndexTTS/backend TextFrontend编码、模型加载或GPU训练**。源接口及许可核查属于只读源码审计，不是端到端运行验证。
+这些是**真实模型机制/模块测试**，模型尺寸很小、权重随机，输入为合成token/音频。它们不是完整预训练2.5、真实Hindi训练或语音质量的证据。旧社区检查点工具的mock测试与原生真实Torch往返分别列明。
 
-## 尚未验证 / 实际训练阻塞
+官方模块发出weight_norm弃用、GenerationMixin及tokenizer文件句柄警告；不影响已执行的forward测试，但没有据此宣称完整`.generate()`/波形路径验证成功。
 
-1. 社区后端缺少LICENSE，使用者需取得明确授权或换用重新审计的合适实现；本仓库没有复制其代码。
-2. Rasa/IndicVoices-R均须用户本人登录处理gated信息共享与访问条件；未接受、未读行、未下载。Rasa缺可信speaker映射时不能进入speaker隔离训练。
-3. 没有实际模型snapshot/权重/辅助资产哈希、GPU依赖安装、离线加载、全部真实frontend/token序列或真实特征提取验证。
-4. 没有执行真实trainer STOP/恢复往返、小样本过拟合、100-step H200吞吐/显存、Hindi/旧语言评测或adapter导出重载一致性。
-5. 共享pod的持久存储、占用、OOM/驱逐风险需在单独本地运行记录中只读评估，不把running/ready当空闲。
+## 已核查的源与资产接口
 
-没有现成Hindi权重，没有HF仓库创建或上传。当前所有质量/资源数值保持未测，不承诺GPU小时。
+- 官方源码固定`d9e41aac89fd00b3d71497fddb287b7f24613712`；真实导入`indextts.gpt.model_v2.UnifiedVoice`，无替代模型stub。
+- 官方HF模型固定`c39ce5ba981572cb187443877ff559dfb246ce63`；实际公开元数据匹配5文件3,260,524,913B的GPT阶段，13文件6,217,934,223B的提取阶段。小文件Gitblob SHA1与下载后SHA256区分。
+- 目录名不证明2.5；完整哈希清单匹配但configversion2.0的用例仍明确失败。
+- 原生路线不依赖社区后端；外部兼容路线仍因缺许可保留fail-fast。
+- 模型/数据下载是否完成、完整权重/音频/GPU是否运行，以本地实际运行记录和后续验收为准；此处不把元数据检查当下载完成。
 
-补充回归：四个最低文件与全部SHA匹配时，`version: 2.0` 仍明确失败；目录名不能证明模型版本。此用例使用合成文件，不是实际权重加载或模型兼容性验证。README已修正生成器只打印配置/预检路径的描述，并明确当前没有trainer、不能独立端到端训练。
+## 包与环境
 
-构建依赖安全修复：GitHub实际报告的三个setuptools告警分别在78.1.1、83.0.0、84.1.0修复，因此固定至84.1.0（其Python>=3.10要求符合本项目范围），并改用SPDX形式的MIT元数据。已实际构建wheel、检查12个文件均为本项目包/许可元数据、确认零核心运行依赖，并从wheel执行CLI帮助检查。参见 [高危修复](https://github.com/pypa/setuptools/security/advisories/GHSA-5rjg-fvgr-3xxf)、[中危修复](https://github.com/advisories/GHSA-h35f-9h28-mq5c)、[低危修复](https://github.com/pypa/setuptools/security/advisories/GHSA-xmj3-9gf7-h52w)。告警后台关闭状态须另以GitHub返回为准。
+核心运行依赖为空；训练为可选extra。实际CPU解析清单见`requirements/native-cpu-macos.lock.txt`，不等于Linux/CUDA锁。构建依赖已升级setuptools84.1.0覆盖此前3项实际告警；不手动忽略告警，GitHub后台状态另以返回为准。此前wheel构建及CLI检查通过；原生版本的最新构建结果随提交核验。
+
+## 真实训练/发布仍需通过
+
+1. 完整模型及辅助资产哈希/严格加载、实际Hindi音频提取与人工对齐检查。
+2. 当前授权认证、明确Hindi配置和小分片预算，保留实际来源/许可；不替用户接受gated条件、不猜speaker身份。
+3. 独立持久目录、实际GPU/运行环境检查；随机微型CPU测试不能代替预训练H200停止/恢复、100-update显存/吞吐。
+4. 完整合并GPT的实际合成、Hindi及zh/en/ja/es/ar回归；合并共享权重不能保证旧语言无变化。
+5. 数据/模型权利审核、真实模型卡和波形/导出验收后才发布权重。没有创建HF模型仓库或上传权重。

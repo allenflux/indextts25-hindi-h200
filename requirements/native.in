@@ -1,0 +1,11 @@
+# Tested with Python 3.11. CPU/GPU platform wheels must be resolved separately.
+torch==2.8.0
+torchaudio==2.8.0
+transformers==4.52.1
+numpy==2.2.6
+einops==0.8.1
+omegaconf==2.3.0
+openai-whisper==20250625
+scipy==1.15.3
+pyarrow==20.0.0
+soundfile==0.13.1

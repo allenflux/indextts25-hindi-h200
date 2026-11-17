@@ -1,0 +1,11 @@
+{
+  "official_repo": "../external/index-tts",
+  "model_dir": "../assets/official-extract",
+  "model_manifest": "../assets/official-extract/model-manifest.json",
+  "prepared_dir": "../data/hindi/prepared",
+  "audio_root": "../data/hindi",
+  "feature_root": "../features/train",
+  "feature_manifest": "../features/train/manifest.jsonl",
+  "provenance": "../features/train/provenance.json",
+  "split": "train"
+}

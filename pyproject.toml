@@ -4,15 +4,27 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "indextts25-hindi-h200-prep"
-version = "0.1.0"
-description = "Original Hindi data and readiness tools for an externally licensed IndexTTS 2.5 fine-tuning backend"
+version = "0.2.0"
+description = "Original Hindi data preparation and experimental native IndexTTS 2.5 LoRA training"
 requires-python = ">=3.11,<3.14"
 license = "MIT"
 readme = "README.md"
 dependencies = []
 
+[project.optional-dependencies]
+native = [
+  "torch==2.8.0", "torchaudio==2.8.0", "transformers==4.52.1", "numpy==2.2.6",
+  "einops==0.8.1", "omegaconf==2.3.0", "openai-whisper==20250625", "scipy==1.15.3",
+  "pyarrow==20.0.0", "soundfile==0.13.1",
+]
+
 [project.scripts]
 hi-h200 = "hi_h200.cli:main"
+hi-h200-native-train = "hi_h200_native.train:main"
+hi-h200-native-extract = "hi_h200_native.extract:main"
+hi-h200-native-assets = "hi_h200_native.assets:main"
+hi-h200-native-export = "hi_h200_native.export:main"
+hi-h200-native-hindi-data = "hi_h200_native.hf_data:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

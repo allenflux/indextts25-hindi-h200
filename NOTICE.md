@@ -7,3 +7,5 @@
 - 数据授权与说话人许可需分别核实。JSONL 的 license/consent 字段是审核记录，不是法律证明。本项目不收集、发布或上传私人数据。
 
 参考与不可变版本见 `upstream.lock.json` 和 `docs/UPSTREAM.md`。
+
+`hi_h200_native` 是独立原创实现，直接导入固定官方模块，没有导入或复制社区训练后端。原创实现的MIT许可不改变原始模型及训练衍生权重适用的bilibili协议。实际下载助手保留模型LICENSE/README及辅助模型卡；w2v-BERT和CAMPPlus分别按其MIT/Apache-2.0声明处理。原始源码许可证保留在独立官方checkout；发布模型/adapter还须随附上游协议与非背书声明。

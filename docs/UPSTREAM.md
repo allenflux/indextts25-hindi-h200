@@ -28,4 +28,4 @@
 
 获得社区明确授权后接入其后端是较短路径；否则可以在遵守官方许可的前提下原创实现。官方 [UnifiedVoice.forward](https://github.com/index-tts/index-tts/blob/d9e41aac89fd00b3d71497fddb287b7f24613712/indextts/gpt/model_v2.py#L596) 返回latents，没有现成训练loss或language-ID参数；[get_logits](https://github.com/index-tts/index-tts/blob/d9e41aac89fd00b3d71497fddb287b7f24613712/indextts/gpt/model_v2.py#L528) 也没有attention_mask参数。原创后端必须正确处理语言conditioning、teacher-forcing对齐与padding/CE mask、Conv1D LoRA、冻结与行梯度/weight-decay隔离、BF16累积、评测、导出重载及完整恢复。可先用batch1加累积缩小范围，再验证padded batching。
 
-这是后续实质模型开发，不是当前已实现的能力。需要先固定合格2.5模型与有授权且对齐的Hindi数据，经过真实forward/backward、过拟合、STOP/恢复和100-update验收后才能宣称端到端训练可用；本仓库没有用mock测试替代这些步骤。
+原创batch1原生实现现已加入`hi_h200_native`，直接调用固定官方模块；真实官方微型GPT的forward/backward、optimizer更新、adapter与完整停止/恢复已做CPU测试。它们使用随机小权重/合成输入，未用mock模型冒充真实模型。完整预训练权重和真实Hindi音频链仍须通过实际提取、过拟合、恢复和100-update验收后才能宣称可用，见[NATIVE.md](NATIVE.md)。

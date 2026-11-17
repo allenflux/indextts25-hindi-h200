@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "train_dataset": "native-train.dataset.json",
+  "val_dataset": "native-val.dataset.json",
+  "output_dir": "../runs/native-hi-h200-smoke",
+  "loop": {
+    "max_updates": 100,
+    "grad_accumulation": 4,
+    "seed": 1234,
+    "device": "cuda:0",
+    "precision": "bf16",
+    "grad_clip": 1.0,
+    "save_interval": 10,
+    "validation_interval": 25,
+    "max_validation_examples": 2
+  },
+  "optimizer": {
+    "learning_rate": 5e-05,
+    "weight_decay": 0.01,
+    "warmup_updates": 10,
+    "min_lr_ratio": 0.1
+  },
+  "lora": {
+    "rank": 8,
+    "alpha": 16.0,
+    "dropout": 0.0,
+    "text_loss_weight": 0.2
+  }
+}

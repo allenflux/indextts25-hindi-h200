@@ -1,59 +1,54 @@
-# IndexTTS 2.5 Hindi / H200 训练准备
+# IndexTTS 2.5 Hindi / H200
 
-这是原创的 Hindi 数据准备、训练前检查与实验操作项目，目标是在单张 H200 上探索 IndexTTS 2.5 的 Hindi LoRA。**不是已训练好的 Hindi 模型，也不是官方 Hindi 支持声明。** **本仓库没有 trainer，当前不能独立端到端训练。** 没有捆绑模型、语料或第三方源码。当前只验证 CPU 工具；没有进行 GPU 训练，没有测量 GPU 性能或质量。
+原创 Hindi 数据工具与实验性原生 LoRA 训练实现。`hi_h200_native` 直接调用固定官方模块，已在CPU真实微型GPT上验证前向/反向、优化更新、完整adapter和停止/恢复；没有导入或复制未许可社区代码。
 
-官方 2.5 tokenizer 的 `hi` 是第 17 个零基语言槽，并存在 `<|hi|>` token；这仅说明接口预留。社区 Turkish 微调路线可作为外部后端参考：冻结声学后端，训练 GPT LoRA、目标语言/文本行与输出 heads。Hindi 可行性仍需实验。锁定版本与许可边界见 [NOTICE](NOTICE.md)、[上游核查](docs/UPSTREAM.md) 和 `upstream.lock.json`。
+**真实预训练2.5权重、真实Hindi音频全链、GPU与语音质量的验证范围以 [VALIDATION.md](VALIDATION.md) 为准。** 目前不能把微型模型测试当作Hindi训练或音质成功。官方tokenizer预留hi槽位17与`<|hi|>`不代表官方训练过Hindi。
 
-## 先运行 CPU 工具
+## 原生训练路线
 
-Python 3.11–3.13，CPU 核心工具零第三方运行依赖。直接使用源码即可，不必 pip 安装。所有工作与缓存放在真实挂载下；示例不自动下载任何东西：
+从 [原生指南](docs/NATIVE.md) 开始，配置示例为`configs/native-dataset.example.json`、`native-train.example.json`和`native-h200.example.json`。
+
+1. 在独立持久目录准备Python3.11环境与官方固定源码，保留许可证。核心数据工具零第三方运行依赖；训练依赖通过本项目`[native]`extra或`requirements/native.in`安装。
+2. 先运行资产助手的元数据模式，检查具体文件、体积和许可；显式下载只选已锁定资产，不拉全模型仓库、不覆盖现有模型。
+3. 只读取已授权Hindi数据的小批次，保留来源/revision/许可记录，运行NFC、音频、去重与speaker隔离校验。
+4. 用冻结的官方编码器生成原生特征并逐条校验，先CPU小样本预检，再按共享GPU实际余量选择是否进行BF16验证。
+5. 先小样本过拟合，再真实STOP/恢复、100次optimizer更新smoke，最后做 [Hindi/旧语言和发布评测](docs/EVALUATION.md)。参数只是实验起点，不承诺GPU小时或音质。
+
+原生实现当前只支持无padding的batch1加梯度累积；冻结声学模块/GPT基础参数，训练attention Conv1D LoRA、Hindi语言行、受限文字行和两个输出head。保存完整可训练状态，原始权重只读。不同语言adapter各自版本管理；不宣称社区adapter、vLLM、ComfyUI或DeepSpeed兼容。
+
+## CPU 数据工具快速检查
+
+从本仓库根目录、真实数据盘运行：
 
 ```bash
-# 从数据盘上的本仓库根目录运行
 mkdir -p .runtime/tmp .runtime/cache
 export TMPDIR="$PWD/.runtime/tmp"
 export XDG_CACHE_HOME="$PWD/.runtime/cache"
-export HF_HOME="$PWD/.runtime/cache/huggingface"
-export TORCH_HOME="$PWD/.runtime/cache/torch"
-export PIP_CACHE_DIR="$PWD/.runtime/cache/pip"
-export UV_CACHE_DIR="$PWD/.runtime/cache/uv"
 export PYTHONDONTWRITEBYTECODE=1
 export PYTHONPATH="$PWD/src"
-python3 -m unittest discover -s tests -v
+python3 -m unittest discover -s tests -p test_data.py -v
 python3 -m hi_h200 --help
 python3 scripts/make_demo.py .runtime/demo
 python3 -m hi_h200 prepare .runtime/demo/input.jsonl --audio-root .runtime/demo --output .runtime/prepared
 python3 -m hi_h200 validate .runtime/prepared --audio-root .runtime/demo
 ```
 
-演示文件是合成正弦音，只有管线测试用途，**与示例文字不对齐，禁止拿去训练或评测语音质量**。示例输出目录若已存在，换一个新目录；工具拒绝覆盖。
+目标目录须全新。六个demo文件是正弦音，与文字不对齐，只用于CPU管线检查，不能训练或评测语音。完整模型/特征/恢复测试需要真实Torch依赖和固定官方checkout，见原生指南；依赖缺失时跳过的测试不算通过。
 
-## 自己的 Hindi 语料
-
-输入为 UTF-8 JSONL，每行一条 clip，例如（示例路径并不存在）：
+raw UTF-8 JSONL每行必填：
 
 ```json
-{"id":"hi_spk_a_clip_a","speaker_id":"spk_a","audio":"spk_a/clip_a.wav","text":"कृपया दरवाज़ा खोलिए।","language":"hi","source":"your-authorized-corpus","license":"your-verified-terms","consent":true}
+{"id":"hi_spk_a_clip_a","speaker_id":"spk_a","audio":"spk_a/clip_a.wav","text":"कृपया दरवाज़ा खोलिए।","language":"hi","source":"your-authorized-corpus","license":"your-reviewed-terms","consent":true}
 ```
 
-至少三个 speaker，每个至少两条独立 clip，才能产生非空 train/val/test 与同说话人不同 clip 提示配对。生产验证集应远大于这个最低值。完整 schema、Unicode、数字策略、去重与拆分规则见 [数据规范](docs/DATA.md)；Rasa/IndicVoices-R 的 gated 访问与说话人限制见 [候选数据来源](docs/DATA_SOURCES.md)。只接受受限 PCM WAV；其他音频先离线转码并人工核对。按 speaker 拆分后再做特征提取，验证/测试音频或其特征不得用于训练提示。
+[数据规范](docs/DATA.md) 说明保守NFC、原文保留、nukta/virama/joiner、数字/货币双确认、PCM WAV长度、去重与同speaker不同clip配对。最低三个speaker、每人两条；正式泛化评测要求更多独立speaker。许可/consent字段是审核记录，不是权利证明。
 
-## H200 操作顺序
+## 数据与许可
 
-1. 阅读 [许可与版本核查](docs/UPSTREAM.md)。社区训练器没有 LICENSE；先取得许可或更换兼容后端，本项目不会替你授予权利。
-2. 运行 CPU 数据检查和源代码预检。准备自己的授权记录、完整模型文件及哈希清单；实际依赖和 CUDA 环境按锁定源码校验。
-3. 按 [H200 runbook](docs/H200.md) 分别预处理三个 split，生成去重的提示配对，并渲染经过字段检查的 BF16 LoRA 配置。
-4. 先运行小样本过拟合 gate，再做 100-step 吞吐/显存 smoke test；两个阶段通过后才扩大数据。示例参数是实验起点，不承诺 GPU 小时或音质。
-5. 使用 [评测与发布门槛](docs/EVALUATION.md) 做 Hindi 盲测与旧语言回归，记录导出前后差异。原始模型只读保存，adapter 按语言单独保存。
+[Rasa/IndicVoices-R访问说明](docs/DATA_SOURCES.md)：gated条件必须用户本人处理，随后还要核实实际认证和明确配置`Hindi`。不要整库下载。Rasa缺可信speaker映射时不可用来保证隔离；正式test音频不得参与训练prompt或调参。
 
-`configs/hindi-h200.example.json` 使用真实后端参数名，JSON 是 YAML 的子集。生成器写出配置和预检记录并打印其路径，不执行训练；真实训练命令见 [H200 runbook](docs/H200.md)。`scripts/check_backend.py --help` 显示源检查与本地前置条件检查接口；失败是明确阻塞，不会生成训练成功记录。脚本不支持 DeepSpeed/use_accel；不要据此假定 vLLM、ComfyUI 或并发动态 adapter 切换可用。
+本仓库原创代码MIT；官方模型、官方源码、辅助权重和数据各循其许可，见 [NOTICE](NOTICE.md) 与 [上游记录](docs/UPSTREAM.md)。下载助手保留模型许可和模型卡；本项目不发布语料、原始权重或私人特征。HF认证只放独立本地目录，禁止把token发到聊天、命令或仓库。
 
-## 验证范围
+外部社区兼容检查仍保留在`scripts/check_backend.py`等工具中，其训练器缺许可证，必须先取得明确许可。该路线的 [H200参考指南](docs/H200.md) 与 [恢复说明](docs/INTERRUPTION.md) 不适用于原生格式；原生路线本身不依赖它。
 
-最终 CPU 检查记录见 [VALIDATION.md](VALIDATION.md)。GPU 训练、真实特征提取、推理、模型加载、Hindi 数据对齐、端到端兼容性及质量均未验证。上游模型的文本前端可能进一步替换标点；务必检查实际 token、音素覆盖与试听，不能把 NFC 处理等同于完整 Hindi 文本前端。
-
-本仓库不自动上传数据，也不创建 GPU 作业。`.gitignore` 排除数据、权重、adapter、缓存与常见凭据；提交前仍须检查 staged 文件。原创代码 MIT，外部模型与训练后端另循各自权利条件。
-
-本次 GitHub 代码仓库按用户授权公开。未来 Hugging Face owner 为 `fluxa0223`；目前没有现成模型、未创建 HF 仓库或上传权重，见 [未来导出说明](docs/EXPORT.md)。
-
-共享 pod 运行前必须先完成 [中断/恢复与共享资源 gate](docs/INTERRUPTION.md)。代码发布不代表实际 trainer 的断点恢复或GPU验收已通过。
+未来HF owner为`fluxa0223`，目前未创建模型仓库或上传权重；[导出说明](docs/EXPORT.md) 保留真实评测与权利审核门槛。共享pod不停止、重启或改动ComfyUI，训练输出使用独立持久目录。
