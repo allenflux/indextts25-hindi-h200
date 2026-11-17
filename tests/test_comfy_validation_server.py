@@ -290,5 +290,115 @@ class BootstrapTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'loader source'): p.cache_snapshot(t8)
 
 
+    def framework_fixture(self, *, setup_fails=False):
+        control = ModuleType('_owned_startup_fixture')
+        control.lib, control.events, control.devices_ready, control.calls = None, [], False, 0
+        control.observed_server = None
+        def init():
+            control.calls += 1; control.lib = object(); control.events.append('native-init')
+        def devices():
+            control.devices_ready = True; control.events.append('native-devices')
+        control.init, control.init_devices = init, devices
+        (self.core / 'server.py').write_text(
+            "from _owned_startup_fixture import lib, events\n"
+            "assert lib is not None, 'dependent module bound an uninitialized alias'\n"
+            "events.append('natural-server-import')\n"
+            "class PromptServer:\n"
+            "    def __init__(self):\n"
+            "        events.append('original-server-constructor')\n")
+        (self.core / 'main.py').write_text(
+            "import _owned_startup_fixture as native\n"
+            "native.init()\n"
+            "import server\n"
+            "native.init_devices()\n"
+            "server.PromptServer()\n"
+            "server.PromptServer()\n")
+        stage = {'paths': {'core': str(self.core)}}
+        def runtime(stage, stack):
+            self.assertTrue(control.devices_ready)
+            control.events.append('owned-runtime-setup')
+            stack.callback(lambda: control.events.append('owned-runtime-cleanup'))
+            if setup_fails:
+                raise RuntimeError('fixture setup failed')
+        def observation(module, config, observed_stage, *, before_initialize):
+            self.assertIsNotNone(control.lib)
+            control.observed_server = module
+            original = module.PromptServer.__init__
+            def construct(self): before_initialize(); original(self)
+            module.PromptServer.__init__ = construct
+            def restore():
+                module.PromptServer.__init__ = original
+                control.events.append('observation-cleanup')
+            return restore
+        return control, stage, runtime, observation
+
+    def run_framework_fixture(self, control, stage, runtime, observation, *, extra_path=None):
+        # Full test suites may already have Torch imported by unrelated tests.
+        # Temporarily hide those entries only; this fixture imports no Torch.
+        with patch.dict(sys.modules), patch.object(sys, 'path', [str(extra_path or self.core), str(self.core), *sys.path]), \
+                patch.object(p, 'initialize_runtime', side_effect=runtime), patch.object(p, 'install_observation', side_effect=observation):
+            for name in list(sys.modules):
+                if name in {'server', 'execution', 'comfy_aimdo.model_vbar'} or name == 'torch' or name.startswith('torch.') or name == 'indextts' or name.startswith('indextts.'):
+                    del sys.modules[name]
+            sys.modules['_owned_startup_fixture'] = control
+            with p.ExitStack() as stack:
+                p.run_framework(stage, self.config, stack)
+
+    def test_natural_main_initializes_before_dependent_import_then_setup_once_and_cleans(self):
+        control, stage, runtime, observation = self.framework_fixture()
+        before = list(sys.meta_path)
+        self.run_framework_fixture(control, stage, runtime, observation)
+        self.assertEqual(control.calls, 1)  # Only the fixture main called init.
+        self.assertEqual(control.events, ['native-init', 'natural-server-import', 'native-devices',
+            'owned-runtime-setup', 'original-server-constructor', 'original-server-constructor',
+            'owned-runtime-cleanup', 'observation-cleanup'])
+        self.assertEqual(sys.meta_path, before)
+        self.assertIsInstance(control.observed_server.__loader__, p.importlib.machinery.SourceFileLoader)
+        self.assertIs(control.observed_server.__loader__, control.observed_server.__spec__.loader)
+
+    def test_natural_main_runtime_exception_restores_hook_and_never_retries_setup(self):
+        control, stage, runtime, observation = self.framework_fixture(setup_fails=True)
+        before = list(sys.meta_path)
+        with self.assertRaisesRegex(RuntimeError, 'fixture setup failed'):
+            self.run_framework_fixture(control, stage, runtime, observation)
+        self.assertEqual(control.events[-2:], ['owned-runtime-cleanup', 'observation-cleanup'])
+        self.assertNotIn('original-server-constructor', control.events)
+        self.assertEqual(sys.meta_path, before)
+        self.assertIsInstance(control.observed_server.__loader__, p.importlib.machinery.SourceFileLoader)
+        self.assertIs(control.observed_server.__loader__, control.observed_server.__spec__.loader)
+        calls = []
+        def fail(): calls.append('called'); raise ValueError('expected setup failure')
+        setup = p.OneTimeSetup(fail)
+        with self.assertRaises(ValueError): setup()
+        with self.assertRaisesRegex(RuntimeError, 'previously failed'): setup()
+        self.assertEqual(calls, ['called'])
+
+    def test_server_hook_rejects_wrong_origin_existing_module_and_reload(self):
+        control, stage, runtime, observation = self.framework_fixture()
+        wrong = self.work / 'wrong'
+        wrong.mkdir(); (wrong / 'server.py').write_text("raise AssertionError('wrong source must never execute')\n")
+        before = list(sys.meta_path)
+        with self.assertRaisesRegex(RuntimeError, 'origin differs'):
+            self.run_framework_fixture(control, stage, runtime, observation, extra_path=wrong)
+        self.assertEqual(sys.meta_path, before)
+        with patch.dict(sys.modules, {'server': ModuleType('server')}), p.ExitStack() as stack, self.assertRaisesRegex(RuntimeError, 'fresh process'):
+            p.run_framework(stage, self.config, stack)
+        hook = p.ServerImportHook(self.core, lambda module: None)
+        self.assertIsNone(hook.find_spec('unrelated'))
+        hook.loaded = True
+        with self.assertRaisesRegex(RuntimeError, 'Reloading'): hook.find_spec('server')
+
+    def test_native_library_alias_check_is_read_only_and_precedes_any_tts_setup(self):
+        memory = ModuleType('comfy.memory_management'); memory.aimdo_enabled = True
+        control = ModuleType('comfy_aimdo.control'); control.lib = object()
+        vbar = ModuleType('comfy_aimdo.model_vbar'); vbar.lib = None
+        with patch.dict(sys.modules, {'comfy.memory_management': memory, 'comfy_aimdo.control': control, 'comfy_aimdo.model_vbar': vbar}), \
+                patch.object(p.synth, '_runtime_import', side_effect=AssertionError('TTS must not be attempted')), p.ExitStack() as stack:
+            with self.assertRaisesRegex(RuntimeError, 'binding is inconsistent'):
+                p.initialize_runtime({'paths': {'t8': str(self.work)}}, stack)
+        self.assertIsNone(vbar.lib)
+        self.assertIsNotNone(control.lib)
+
+
 if __name__ == '__main__':
     unittest.main()

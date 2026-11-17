@@ -10,6 +10,8 @@ from contextlib import ExitStack
 import ctypes
 import hmac
 import importlib
+import importlib.abc
+import importlib.machinery
 import inspect
 import json
 import os
@@ -253,7 +255,7 @@ class RequestPolicy:
         return True
 
 
-def install_observation(server_module, config, stage):
+def install_observation(server_module, config, stage, *, before_initialize=None):
     from aiohttp import web
     original_init = server_module.PromptServer.__init__
     t8_root, events, policy = Path(stage['paths']['t8']), EventLog(), RequestPolicy(config)
@@ -269,6 +271,8 @@ def install_observation(server_module, config, stage):
             return web.Response(status=403)
         return await handler(request)
     def initialize(self, *args, **kwargs):
+        if before_initialize is not None:
+            before_initialize()
         original_init(self, *args, **kwargs)
         self.app.middlewares.append(authorized)
         original_send = self.send_sync
@@ -301,6 +305,99 @@ def normalizer_factory(original, root):
     return construct
 
 
+class OneTimeSetup:
+    """One setup per owned process; a failed setup must never be retried."""
+    def __init__(self, callback):
+        self.callback, self.state, self.lock = callback, 'pending', threading.RLock()
+    def __call__(self):
+        with self.lock:
+            if self.state == 'done':
+                return
+            if self.state != 'pending':
+                raise RuntimeError('Runtime setup is reentrant or previously failed')
+            self.state = 'running'
+            try:
+                self.callback()
+            except BaseException:
+                self.state = 'failed'
+                raise
+            self.state = 'done'
+
+
+class ServerImportHook(importlib.abc.MetaPathFinder):
+    """Observe only the natural import of this exact staged server.py."""
+    def __init__(self, core, callback):
+        self.origin = Path(core) / 'server.py'
+        self.callback, self.loaded = callback, False
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname != 'server':
+            return None
+        if self.loaded or target is not None:
+            raise RuntimeError('Reloading the owned server is unsupported')
+        spec = importlib.machinery.PathFinder.find_spec(fullname, path)
+        if spec is None or spec.origin is None or Path(spec.origin).resolve(strict=True) != self.origin or not isinstance(spec.loader, importlib.machinery.SourceFileLoader):
+            raise RuntimeError('Natural server import origin differs from staged core')
+        original, owner = spec.loader, self
+        class ObservedLoader(importlib.abc.Loader):
+            def create_module(self, spec):
+                return original.create_module(spec)
+            def exec_module(self, module):
+                try:
+                    original.exec_module(module)
+                    if owner.loaded or Path(inspect.getfile(module)).resolve(strict=True) != owner.origin:
+                        raise RuntimeError('Owned server import was repeated or changed origin')
+                    owner.callback(module)
+                    owner.loaded = True
+                finally:
+                    if getattr(module, '__loader__', None) is self:
+                        module.__loader__ = original
+                    if getattr(getattr(module, '__spec__', None), 'loader', None) is self:
+                        module.__spec__.loader = original
+            def __getattr__(self, name):
+                return getattr(original, name)
+        spec.loader = ObservedLoader()
+        return spec
+    def remove(self):
+        if self in sys.meta_path:
+            sys.meta_path.remove(self)
+
+
+def initialize_runtime(stage, stack):
+    """Run after main's native initialization, before its real server constructor."""
+    memory = sys.modules.get('comfy.memory_management')
+    if memory is None:
+        raise RuntimeError('Comfy natural runtime initialization did not complete')
+    if getattr(memory, 'aimdo_enabled', False):
+        control = sys.modules.get('comfy_aimdo.control')
+        vbar = sys.modules.get('comfy_aimdo.model_vbar')
+        library = getattr(control, 'lib', None)
+        if library is None or getattr(vbar, 'lib', None) is not library:
+            raise RuntimeError('Natural DynamicVRAM library binding is inconsistent')
+    constructor = stack.enter_context(synth._runtime_import(Path(stage['paths']['t8']), stage['cache_environment'], install_cache_adapter=False))
+    module = sys.modules[constructor.__module__]
+    original_normalizer = module.TextNormalizer
+    module.TextNormalizer = normalizer_factory(original_normalizer, Path(stage['cache_environment']['XDG_CACHE_HOME']))
+    stack.callback(setattr, module, 'TextNormalizer', original_normalizer)
+    import torch
+    torch.set_num_threads(2); torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True; torch.backends.cuda.matmul.allow_tf32 = False
+    torch.backends.cudnn.allow_tf32 = False; torch.use_deterministic_algorithms(True)
+
+
+def run_framework(stage, config, stack):
+    if any(name in {'server', 'execution', 'comfy_aimdo.model_vbar'} or name == 'torch' or name.startswith('torch.') or name == 'indextts' or name.startswith('indextts.') for name in sys.modules):
+        raise RuntimeError('Use a fresh process: no Torch/TTS/server before natural main startup')
+    setup = OneTimeSetup(lambda: initialize_runtime(stage, stack))
+    def server_loaded(module):
+        stack.callback(install_observation(module, config, stage, before_initialize=setup))
+    hook = ServerImportHook(Path(stage['paths']['core']), server_loaded)
+    sys.meta_path.insert(0, hook)
+    stack.callback(hook.remove)
+    runpy.run_path(str(Path(stage['paths']['core']) / 'main.py'), run_name='__main__')
+    if not hook.loaded or setup.state != 'done':
+        raise RuntimeError('Framework exited before the owned runtime/server initialized')
+
+
 def main():
     if len(sys.argv) != 2 or sys.platform != 'linux':
         raise RuntimeError('Only the owned Linux bootstrap config is supported')
@@ -320,18 +417,7 @@ def main():
     with ExitStack() as stack:
         stack.callback(disable_request_environment(requests))
         stack.callback(install_network_policy(port))
-        constructor = stack.enter_context(synth._runtime_import(Path(stage['paths']['t8']), stage['cache_environment'], install_cache_adapter=False))
-        module = sys.modules[constructor.__module__]
-        original_normalizer = module.TextNormalizer
-        module.TextNormalizer = normalizer_factory(original_normalizer, Path(stage['cache_environment']['XDG_CACHE_HOME']))
-        stack.callback(setattr, module, 'TextNormalizer', original_normalizer)
-        import torch
-        torch.set_num_threads(2); torch.backends.cudnn.benchmark = False
-        torch.backends.cudnn.deterministic = True; torch.backends.cuda.matmul.allow_tf32 = False
-        torch.backends.cudnn.allow_tf32 = False; torch.use_deterministic_algorithms(True)
-        import server
-        stack.callback(install_observation(server, config, stage))
-        runpy.run_path(str(Path(stage['paths']['core']) / 'main.py'), run_name='__main__')
+        run_framework(stage, config, stack)
 
 
 if __name__ == '__main__':
