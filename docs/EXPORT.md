@@ -33,10 +33,10 @@
 
 GitHub保存非敏感原创代码、模型卡、安装说明和验证摘要，并链接实际HF产物；不把训练数据或多GB模型混入普通代码提交。
 
-操作记录（2026-11-17）：已通过网页向[`fluxa0223/IndexTTS-2.5-Hindi-best100-experimental`](https://huggingface.co/fluxa0223/IndexTTS-2.5-Hindi-best100-experimental/tree/117c7922e4dcedc3f9885f3f6efa5be8f54c7919)上传冻结13文件，commit为`117c7922e4dcedc3f9885f3f6efa5be8f54c7919`。匿名核验确认`private=false`、14项inventory（13文件加原`.gitattributes`）；12个小文件实际GET并逐hash匹配，GPT按LFS元数据核对size/SHA，没有重新下载3GB权重。历史`469daf1093966c58827dff5c7525e18e57000cb1`仅为说明元数据commit，不是权重下载revision。完整核验范围见[PUBLIC_RELEASE](PUBLIC_RELEASE.md)。
+操作记录（2026-11-17）：已通过网页向[`fluxa0223/IndexTTS-2.5-Hindi-best100-experimental`](https://huggingface.co/fluxa0223/IndexTTS-2.5-Hindi-best100-experimental/tree/117c7922e4dcedc3f9885f3f6efa5be8f54c7919)上传冻结13文件，commit为`117c7922e4dcedc3f9885f3f6efa5be8f54c7919`。匿名核验确认`private=false`、14项inventory（13文件加原`.gitattributes`）；首次核验实际GET的12个小文件为963,442 bytes，另API响应2,585 bytes，helper总计966,027 bytes；GPT当时只按LFS元数据核对size/SHA。历史`469daf1093966c58827dff5c7525e18e57000cb1`仅为说明元数据commit，不是权重下载revision。完整核验范围见[PUBLIC_RELEASE](PUBLIC_RELEASE.md)。
 
 创建与上传使用用户本人网页登录会话，没有借用Pod默认其他账户或改共享凭据。长期模型卡及冻结13文件保持原样；私人听评ZIP、训练数据和认证材料未上传。
 
 按HF官方[上传指南](https://huggingface.co/docs/huggingface_hub/guides/upload)与[仓库管理](https://huggingface.co/docs/huggingface_hub/guides/repository)接口，只提交独立目录的明确白名单；不要设置删除远端不相关文件的参数。[模型卡元数据](https://huggingface.co/docs/hub/model-cards#specifying-a-license)使用自定义bilibili许可，不标MIT。
 
-本次远端核验退出0，状态为`verified_remote_metadata_and_12_small_files`；它不是对远端GPT的3GB重新下载/读回。下载者仍须固定上述revision并校验本地完整GPT。人工Hindi听评与完整旧语言回归继续独立记录；当前固定ComfyUI版本的HI/原始文件清单双阻塞仍在，新的节点GPU验收正在进行、尚无结果。
+首次远端核验退出0，状态为`verified_remote_metadata_and_12_small_files`，当时未下载完整GPT。后续已在5090宿主的新独立工作目录使用公开`download_public_release.py`（源码4c9dd0e），匿名SDK固定上述HF revision完成13文件下载，回执`complete=true`；GPT 3,259,538,991 bytes的完整流式SHA与冻结423a8491…值匹配，首次确认完成时，距任务启动约504秒（未测量精确下载耗时），未使用token或GPU。详情见[PUBLIC_RELEASE](PUBLIC_RELEASE.md)。人工Hindi听评与完整旧语言回归继续独立记录；当前固定ComfyUI版本的HI/原始文件清单双阻塞仍在，节点验证准备进行中，尚未运行节点GPU合成。

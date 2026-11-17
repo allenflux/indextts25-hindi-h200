@@ -8,13 +8,15 @@
 |---|---|---|
 | GitHub代码 | 公开源码`36dffe21c0793b1544898e6bcb11f1d34af542a3`已推送并核对远端SHA | — |
 | CPU与审查 | Mac完整suite **246/246通过、0跳过、37.376秒**；独立审查通过 | 不代表任意环境兼容或音质通过 |
-| HF发布 | 网页已上传冻结13文件；匿名核验确认`private=false`、14项inventory及固定revision | GPT仅核验LFS元数据，未重新下载3GB权重 |
+| HF发布 | 冻结13文件网页发布；匿名元数据/12小文件核验及后续完整SDK下载均通过 | 下载与哈希通过不等于质量或节点兼容通过 |
 | 本地公开包 | 精确13文件目录准备、完整ZIP与本地payload验证通过 | 下载者仍应独立校验本地完整文件 |
 | 公开格式加载 | metadata preflight退出0，H200实际完整stock加载和生成退出0 | 不代表ComfyUI节点可直接替换 |
 
-HF实验权重已发布至 [fluxa0223/IndexTTS-2.5-Hindi-best100-experimental](https://huggingface.co/fluxa0223/IndexTTS-2.5-Hindi-best100-experimental/tree/117c7922e4dcedc3f9885f3f6efa5be8f54c7919)，网页上传commit为 **`117c7922e4dcedc3f9885f3f6efa5be8f54c7919`**。匿名核验退出0，状态`verified_remote_metadata_and_12_small_files`：`private=false`，14项inventory为冻结13文件加原`.gitattributes`，没有额外私人产物。
+HF实验权重已发布至 [fluxa0223/IndexTTS-2.5-Hindi-best100-experimental](https://huggingface.co/fluxa0223/IndexTTS-2.5-Hindi-best100-experimental/tree/117c7922e4dcedc3f9885f3f6efa5be8f54c7919)，网页上传commit为 **`117c7922e4dcedc3f9885f3f6efa5be8f54c7919`**。首次匿名核验退出0，状态`verified_remote_metadata_and_12_small_files`：`private=false`，14项inventory为冻结13文件加原`.gitattributes`，没有额外私人产物。
 
-GPT的远端LFS元数据为 **3,259,538,991 bytes**、SHA256 `423a8491b8856c7c3075254b12defc3ae47dbd9e0de285772523ddd4e9a97021`，与冻结候选一致；其余12个小文件已实际匿名GET，合计 **966,027 payload bytes**，逐文件hash全部匹配。**本轮未重新下载远端3GB GPT，LFS元数据匹配不等于本轮完整文件读回。** 下载者应固定该revision，并继续做本地完整payload验证。
+首次核验的GPT远端LFS元数据为 **3,259,538,991 bytes**、SHA256 `423a8491b8856c7c3075254b12defc3ae47dbd9e0de285772523ddd4e9a97021`，与冻结候选一致；12个小文件实际匿名GET并逐hash匹配，文件内容共 **963,442 bytes**。另有API响应 **2,585 bytes**，helper的`total_verified_payload_bytes=966027`是两者合计，不是12个模型文件的大小。该次只核验GPT LFS元数据，未下载其完整内容。
+
+后续已在5090宿主的全新独立工作目录使用[`scripts/download_public_release.py`](../scripts/download_public_release.py)（源码`4c9dd0e10790530f31b756d991981bd4d3116610`）匿名SDK下载固定HF revision `117c7922e4dcedc3f9885f3f6efa5be8f54c7919`。实际完成回执为`complete=true`、13文件，GPT为 **3,259,538,991 bytes**，完整流式重算SHA与上述冻结值一致；首次确认完成时，距任务启动约 **504秒**（未测量精确下载耗时）。这是完整payload下载/校验的实际证据，未使用token、未触及GPU或启动训练；不再仅有LFS元数据核验。
 
 历史`469daf1093966c58827dff5c7525e18e57000cb1`仅提交pre-release说明元数据，不是权重下载revision。此次上传使用冻结13文件原样README（8747 bytes），远端12个小文件hash已与原manifest匹配；未更改长期模型卡或冻结发布包。
 
@@ -36,13 +38,15 @@ GPT的远端LFS元数据为 **3,259,538,991 bytes**、SHA256 `423a8491b8856c7c30
 
 实际检查的T8节点固定版本为`1ff425ece89ef9824f58f0e4dbfb057991814e88`。其CPU meta结构检查已通过：**456/456 tensors**，missing、extra及shape mismatch均为0，strict加载通过。该检查只证明CPU meta设备上的key/shape兼容，没有运行节点GPU合成或ComfyUI queue。
 
-两项独立阻塞仍存在：UI/运行时语言白名单拒绝`HI`；节点的原始GPT固定大小与哈希清单拒绝候选。关闭SHA检查也不解除大小检查。因此，**不能直接覆盖当前ComfyUI原GPT**；独立stock公开加载成功不解除这些节点限制。原始模型保持不动；新的节点GPU验收正在进行，尚无结果。目标保持workflow结构，language参数可调整，不能据HF发布推断节点集成已完成。
+两项独立阻塞仍存在：UI/运行时语言白名单拒绝`HI`；节点的原始GPT固定大小与哈希清单拒绝候选。关闭SHA检查也不解除大小检查。因此，**不能直接覆盖当前ComfyUI原GPT**；独立stock公开加载成功不解除这些节点限制。原始模型保持不动；节点验证准备仍在进行，尚未运行节点GPU合成。目标保持workflow结构，language参数可调整，不能据HF发布推断节点集成已完成。
+
+另对该宿主原资产目录的26项作只读哈希审计：25项匹配，唯一差异为`config.yaml`，语义差异仅`version: 2.0`到`2.5`。隔离测试目录改用已固定的官方2.5配置，原目录未改；此准备检查不构成节点GPU成功证据。
 
 ## 发布收口边界
 
-本次已核对owner、公开状态、不可变revision、inventory、GPT LFS size/SHA及12个小文件内容哈希；远端GPT未作3GB重新下载。实验标识、Hindi 50% test CER、旧语言stress差异及人工未完成等限制必须随权重保留。
+已完成首次owner/公开状态/revision/inventory、GPT LFS及12小文件核验，随后又完成独立匿名SDK的13文件完整下载与GPT流式哈希校验。实验标识、Hindi 50% test CER、旧语言stress差异及人工未完成等限制必须随权重保留。
 
-先前公开包只读收尾检查确认训练与stock合成任务均已退出，ComfyUI健康检查返回 **HTTP200**；新的节点GPU验收结果仍待回收。
+先前公开包只读收尾检查确认训练与stock合成任务均已退出，ComfyUI健康检查返回 **HTTP200**；节点验证准备仍在进行，GPU合成尚未执行。
 
 此前两份私有评审/许可ZIP已由用户自行下载到Mac并逐hash验证，仍不公开，不传HF或Library；它们与当前13文件公开模型目录分开。当前未改全局依赖、未替换生产模型、未接受新数据访问条款，也不公开认证材料、私人音频/文本或财务确认。
 

@@ -282,6 +282,30 @@ def model_fingerprint(model_dir):
             with self.assertRaises(p.CompatibilityError):
                 p.candidate_manifest(self.base, revision)
 
+    def test_exact_oversized_entry_streams_fully_and_rejects_size_hash_or_unknown(self):
+        name = next(iter(p.LARGE_SOURCE_ENTRIES))
+        data = b"tiny oversized source fixture"
+        info = tarfile.TarInfo(name)
+        info.size = len(data)
+        pin = {name: {"size": len(data), "blob": p._blob(data)}}
+        with patch.object(p, "MAX_SOURCE_FILE", 8), patch.object(p, "LARGE_SOURCE_ENTRIES", pin):
+            output = io.BytesIO()
+            p._copy_source_entry(io.BytesIO(data), output, info)
+            self.assertEqual(output.getvalue(), data)  # No ordinary-bound truncation.
+            for damaged, message in ((data[:-1], "Truncated"),
+                                     (b"X" + data[1:], "Git blob mismatch"),
+                                     (data + b"X", "length mismatch")):
+                with self.assertRaisesRegex(p.CompatibilityError, message):
+                    p._copy_source_entry(io.BytesIO(damaged), io.BytesIO(), info)
+            wrong_size = copy.copy(info)
+            wrong_size.size -= 1
+            with self.assertRaisesRegex(p.CompatibilityError, "size/type mismatch"):
+                p._source_entry_pin(wrong_size)
+            unknown = copy.copy(info)
+            unknown.name = "unreviewed-large-file.bin"
+            with self.assertRaisesRegex(p.CompatibilityError, "too large"):
+                p._source_entry_pin(unknown)
+
     def test_archive_traversal_and_symlinks_rejected_before_new_directory(self):
         for name, kind in [("../escape", tarfile.REGTYPE), ("link", tarfile.SYMTYPE)]:
             container = io.BytesIO()

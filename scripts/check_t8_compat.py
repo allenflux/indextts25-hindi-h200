@@ -44,6 +44,11 @@ PINNED_BLOBS = {
 # Filled from deterministic transformations of the seven pinned public blobs.
 PATCHED_SHA256 = {'nodes_v3.py': '7ec24c7ba191bc24ded9a2d98d58d8ba7a79642c3357fba42d4ec856b1222854', 'runtime/inference_adapter.py': '0d282f3fc971086e9814b86b74b90d1a096e4406103a186662098d60f6f4e663', 'runtime/text_planner.py': '8b235d22d6f4bca5d9a5cd839edb367100d3c22cffa3a2f916e7e799d6ceeb67', 'services/model_store.py': '995e71b3ac4ab2a59d171feb2172d7b223d974c4218f6244929a965baaad744d'}
 MAX_SOURCE_FILE = 16 * 1024 * 1024
+# One fixed public Git-tree asset exceeds the ordinary source-file bound.
+LARGE_SOURCE_ENTRIES = {
+    "indextts/utils/maskgct/models/codec/facodec/modules/JDC/bst.t7": {
+        "size": 21029926, "blob": "d6cf419f9e964af2fd4e3a110c0f0af5fa6e6a43"},
+}
 MAX_ARCHIVE = 128 * 1024 * 1024
 MAX_ENTRIES = 5000
 
@@ -252,6 +257,31 @@ def _safe_member(name):
     return path
 
 
+def _source_entry_pin(member):
+    """Only the exact fixed-tree path/length may exceed the usual file bound."""
+    pinned = LARGE_SOURCE_ENTRIES.get(member.name)
+    if pinned is not None:
+        _require(member.isreg() and member.size == pinned["size"], "Pinned source entry size/type mismatch")
+    else:
+        _require(0 <= member.size <= MAX_SOURCE_FILE, "Source entry too large")
+    return pinned
+
+
+def _copy_source_entry(incoming, outgoing, member):
+    pinned = _source_entry_pin(member)
+    digest = hashlib.sha1(b"blob " + str(member.size).encode() + b"\0")
+    remaining = member.size
+    while remaining:
+        chunk = incoming.read(min(1024 * 1024, remaining))
+        _require(chunk and len(chunk) <= remaining, "Truncated or oversized source entry")
+        outgoing.write(chunk)
+        digest.update(chunk)
+        remaining -= len(chunk)
+    _require(not incoming.read(1), "Source entry length mismatch")
+    if pinned is not None:
+        _require(digest.hexdigest() == pinned["blob"], "Pinned source entry Git blob mismatch")
+
+
 def _audit(revision):
     return {"format": "t8-hindi-isolated-compatibility-v1", "node_repository": NODE_REPOSITORY,
             "node_revision": NODE_REVISION, "candidate_repository": CANDIDATE_REPOSITORY,
@@ -288,7 +318,7 @@ def prepare(root: Path, destination: Path, revision: str):
             _require(str(path) not in seen, "Duplicate source archive entry")
             seen.add(str(path))
             _require(member.isdir() or member.isreg(), "Source symlinks/special files are forbidden")
-            _require(member.size <= MAX_SOURCE_FILE, "Source entry too large")
+            _source_entry_pin(member)
             total += member.size
         _require(total <= MAX_ARCHIVE, "Expanded source archive too large")
         destination.mkdir(mode=0o700)
@@ -299,7 +329,7 @@ def prepare(root: Path, destination: Path, revision: str):
             else:
                 path.parent.mkdir(parents=True, exist_ok=True)
                 with stream.extractfile(member) as incoming, path.open("xb") as outgoing:
-                    outgoing.write(incoming.read(MAX_SOURCE_FILE + 1))
+                    _copy_source_entry(incoming, outgoing, member)
     inspect_node(destination)
     contents = {name: _read(destination / name) for name in PINNED_BLOBS}
     transformed = patch_sources(contents)
