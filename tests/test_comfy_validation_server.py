@@ -137,6 +137,24 @@ class BootstrapTests(unittest.TestCase):
         other = p.EventLog(); other.append('execution_cached', {'nodes': list(range(9))})
         self.assertTrue(other.snapshot()['overflow'])
 
+    def test_required_object_info_paths_are_exact_authenticated_read_only_literals(self):
+        from run_comfy_validation import CLASS_TYPES
+        policy = p.RequestPolicy(self.config)
+        headers = {'X-Validation-Nonce': self.config['nonce']}
+        for name in set(CLASS_TYPES.values()):
+            path = '/object_info/' + name
+            with self.subTest(node=name):
+                self.assertTrue(policy.authorized('GET', path, headers, raw_path=path))
+                self.assertFalse(policy.authorized('GET', path, {}, raw_path=path))
+                self.assertFalse(policy.authorized('POST', path, headers))
+                for variant in (path + '/', path + '?x=1', path + '/other', path + '/../queue',
+                                path.replace('/object_info/', '/object_info/%2e%2e/')):
+                    self.assertFalse(policy.authorized('GET', variant, headers))
+                for raw in (path + '?x=1', path + '/', path.replace(name, '%'+format(ord(name[0]), '02X')+name[1:])):
+                    self.assertFalse(policy.authorized('GET', path, headers, raw_path=raw))
+        self.assertFalse(policy.authorized('GET', '/object_info/UnknownNode', headers))
+        self.assertEqual(policy.submissions, 0)  # GET must not reserve any of the three graph submissions.
+
     def test_observation_wires_auth_and_state_without_constructing_a_real_server(self):
         class Response:
             def __init__(self, status=200, value=None): self.status, self.value = status, value
@@ -175,6 +193,13 @@ class BootstrapTests(unittest.TestCase):
                 self.assertEqual(state['server_pid'], os.getpid())
                 self.assertNotIn(self.config['nonce'], json.dumps(state))
                 self.assertNotIn('must not appear', json.dumps(state))
+                async def core_info(request): return Response()
+                request = Request({'X-Validation-Nonce': self.config['nonce']})
+                request.path = '/object_info/AudioEncrypt'; request.raw_path = request.path
+                self.assertEqual(drive(middleware(request, core_info)).status, 200)
+                for raw_path in (request.path + '?x=1', '/object_info/%41udioEncrypt', request.path + '/'):
+                    request.raw_path = raw_path
+                    self.assertEqual(drive(middleware(request, core_info)).status, 403)
                 request = Request({}); request.path = '/validation/prompt.wav'
                 result = drive(middleware(request, service.routes.handlers[request.path]))
                 self.assertEqual(result.value, str(self.prompt))

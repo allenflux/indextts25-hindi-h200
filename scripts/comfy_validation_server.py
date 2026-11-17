@@ -224,12 +224,16 @@ class EventLog:
 class RequestPolicy:
     def __init__(self, config):
         self.config, self.submissions, self.lock = config, 0, threading.RLock()
-    def authorized(self, method, path, headers, raw=None):
+    def authorized(self, method, path, headers, raw=None, *, raw_path=None):
         if method == 'GET' and path == '/validation/prompt.wav':
             return True
         if not hmac.compare_digest(headers.get('X-Validation-Nonce', ''), self.config['nonce']):
             return False
         if method == 'GET':
+            from run_comfy_validation import CLASS_TYPES
+            object_info_paths = {'/object_info/' + name for name in CLASS_TYPES.values()}
+            if path in object_info_paths:
+                return raw_path is None or raw_path == path
             return path in {'/validation/state', '/queue', '/object_info', '/view'} or re.fullmatch('/history/[A-Za-z0-9-]{16,80}', path) is not None
         if method != 'POST' or path != '/prompt' or raw is None or len(raw) > 64 * 1024:
             return False
@@ -260,7 +264,8 @@ def install_observation(server_module, config, stage):
             if not hmac.compare_digest(request.headers.get('X-Validation-Nonce', ''), config['nonce']) or request.content_length is None or not 0 < request.content_length <= 64 * 1024:
                 return web.Response(status=403)
             raw = await request.read()  # aiohttp caches bytes for the actual core handler.
-        if not policy.authorized(request.method, request.path, request.headers, raw):
+        if not policy.authorized(request.method, request.path, request.headers, raw,
+                                 raw_path=getattr(request, 'raw_path', request.path)):
             return web.Response(status=403)
         return await handler(request)
     def initialize(self, *args, **kwargs):
