@@ -33,7 +33,7 @@
 
 GitHub保存非敏感原创代码、模型卡、安装说明和验证摘要，并链接实际HF产物；不把训练数据或多GB模型混入普通代码提交。
 
-操作记录（2026-11-17）：HF公开目标已创建为[`fluxa0223/IndexTTS-2.5-Hindi-best100-experimental`](https://huggingface.co/fluxa0223/IndexTTS-2.5-Hindi-best100-experimental)，当前阶段只有初始README，权重上传待完成。此操作状态不写入长期模型卡正文；模型卡引导读者以实际Files、不可变revision及manifest核对产物。创建使用用户本人的现有网页登录会话；没有借用Pod默认的其他只读账户，也未改动共享凭据。接下来仅向该明确目标上传经审核的权重与公开白名单，不读取、打印或向聊天索取token，不覆盖不相关内容。任何中转也仅限已授权的模型发布文件，不包含私人听评ZIP或训练数据。
+操作记录（2026-11-17）：HF公开目标已创建为[`fluxa0223/IndexTTS-2.5-Hindi-best100-experimental`](https://huggingface.co/fluxa0223/IndexTTS-2.5-Hindi-best100-experimental)，已通过普通网页编辑器提交含“权重尚未上传”提示的完整模型卡，commit为`469daf1093966c58827dff5c7525e18e57000cb1`；匿名复核仍只有README和`.gitattributes`，权重上传待完成。该commit仅是模型说明，不是权重下载revision。此操作状态不写入长期模型卡正文；模型卡引导读者以实际Files、不可变revision及manifest核对产物。创建使用用户本人的现有网页登录会话；没有借用Pod默认的其他只读账户，也未改动共享凭据。接下来仅向该明确目标上传经审核的权重与公开白名单，不读取、打印或向聊天索取token，不覆盖不相关内容。任何中转也仅限已授权的模型发布文件，不包含私人听评ZIP或训练数据。
 
 按HF官方[上传指南](https://huggingface.co/docs/huggingface_hub/guides/upload)与[仓库管理](https://huggingface.co/docs/huggingface_hub/guides/repository)接口，只提交独立目录的明确白名单；不要设置删除远端不相关文件的参数。[模型卡元数据](https://huggingface.co/docs/hub/model-cards#specifying-a-license)使用自定义bilibili许可，不标MIT。
 
