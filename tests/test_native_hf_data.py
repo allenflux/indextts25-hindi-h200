@@ -161,7 +161,8 @@ class HfMetadataTests(unittest.TestCase):
         with self.assertRaisesRegex(hf.ImportBlocked, "SHA256"):
             hf.download_pin(pin, folder, lambda **_: str(path))
         pin = hf.FilePin("file", path.stat().st_size, hashlib.sha256(path.read_bytes()).hexdigest())
-        result, _ = hf.download_pin(pin, folder, lambda **_: str(path))
+        result, _, reused = hf.download_pin(pin, folder, lambda **_: str(path))
+        self.assertFalse(reused)
         self.assertEqual(result, path)
         outside = self.root / "outside"
         outside.write_bytes(path.read_bytes())
@@ -197,7 +198,7 @@ class HfAudioParquetTests(unittest.TestCase):
     def rows(self):
         return [dict(speaker_id=f"source-speaker-{i // 4}", duration=1.2, lang="Hindi",
                      normalized=text, text=text, verbatim=text, audio=self.audio(i)) for i, text in enumerate(TEXTS)]
-    def run_with_fake_downloads(self, first_rows, second_rows, *, max_rows=hf.MAX_ROWS):
+    def run_with_fake_downloads(self, first_rows, second_rows, *, max_rows=hf.MAX_ROWS, max_duration=6):
         first = self.parquet(first_rows, "lazy-first.parquet")
         second = self.parquet(second_rows, "lazy-second.parquet")
         card = self.root / "card.md"
@@ -213,7 +214,8 @@ class HfAudioParquetTests(unittest.TestCase):
                                          permission_basis="Synthetic operator declaration used only for a CPU unit test.")))
         output = self.root / "lazy-import"
         args = hf.parser().parse_args(["--output", str(output), "--download", "--rights-record", str(rights),
-                                       "--max-examined-rows", str(max_rows)])
+                                       "--max-examined-rows", str(max_rows),
+                                       "--max-duration-seconds", str(max_duration)])
         sources = {"README.md": card, hf.SHARDS[0][0]: first, hf.SHARDS[1][0]: second}
         calls = []
         def download(**kwargs):
@@ -257,6 +259,78 @@ class HfAudioParquetTests(unittest.TestCase):
         audit = json.loads((output / "audit" / "downloaded_files.json").read_text())
         self.assertFalse(audit["import_completed"])
         self.assertFalse((output / "import.json").exists())
+
+    def test_explicit_duration_cap_preserves_eight_second_target(self):
+        cell = self.audio(duration=8, stereo=True)
+        with self.assertRaises(hf.ImportBlocked):
+            hf.decode_audio(cell)
+        wav, inspected = hf.decode_audio(cell, max_duration_seconds=10)
+        with wave.open(io.BytesIO(wav), "rb") as handle:
+            self.assertEqual(handle.getnframes(), 8 * 24000)
+        self.assertEqual(inspected["source_frames"], 8 * 48000)
+        with self.assertRaises(hf.ImportBlocked):
+            hf.decode_audio(cell, max_duration_seconds=7)
+        for cap in (0, 21, float("nan"), float("inf"), True):
+            with self.assertRaises(hf.ImportBlocked):
+                hf.decode_audio(cell, max_duration_seconds=cap)
+
+    def test_explicit_cap_applies_to_metadata_decode_prepare_and_audit(self):
+        rows = self.rows()
+        for index, row in enumerate(rows):
+            row["duration"] = 8.0
+            row["audio"] = self.audio(index, duration=8)
+        path = self.parquet(rows)
+        output = self.root / "eight-second-import"
+        output.mkdir()
+        report = hf.import_parquets([(hf.SHARDS[0][0], path)], output, max_duration_seconds=10)
+        self.assertEqual(report["max_duration_seconds"], 10)
+        self.assertFalse(report["target_audio_truncated"])
+        settings = json.loads((output / "prepared" / "manifest.json").read_text())["settings"]
+        self.assertEqual(settings["max_seconds"], 10)
+        self.assertEqual(len(list(read_jsonl(output / "input.jsonl"))), 24)
+        self.assertTrue(all(row["target_frames"] == 8 * 24000 for row in read_jsonl(output / "input.jsonl")))
+        self.assertEqual(validate(output / "prepared", output)["status"], "valid")
+
+    def test_reuse_reads_only_fixed_shard_and_never_downloads_it(self):
+        args, output, calls, download, plan = self.run_with_fake_downloads(self.rows(), self.rows())
+        old = self.root / "previous" / "downloads"
+        for pin in plan[1]:
+            destination = old / pin.filename
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            source = self.root / ("lazy-first.parquet" if pin.filename == hf.SHARDS[0][0] else "lazy-second.parquet")
+            shutil.copyfile(source, destination)
+        (old / "unrelated-private-fixture").write_text("Must not be scanned")
+        args.reuse_downloads = old
+        with patch.object(hf, "metadata_plan", return_value=plan):
+            result = hf.run(args, api=object(), download=download)
+        self.assertEqual(calls, ["README.md"])
+        audit = json.loads((output / "audit" / "downloaded_files.json").read_text())
+        self.assertEqual([item["reused"] for item in audit["files"]], [False, True])
+        self.assertEqual(audit["reused_file_bytes"], plan[1][0].size)
+        self.assertEqual(audit["newly_downloaded_file_bytes"], plan[2][0].size)
+        self.assertEqual(audit["verified_file_bytes"], plan[1][0].size + plan[2][0].size)
+        self.assertEqual(result["reused_file_bytes"], plan[1][0].size)
+        self.assertFalse((output / "downloads" / hf.SHARDS[1][0]).exists())
+
+    def test_reuse_full_hash_mismatch_and_escape_block_without_network(self):
+        output = self.root / "reuse-output"
+        output.mkdir()
+        old = self.root / "old" / "downloads"
+        original = old / hf.SHARDS[0][0]
+        original.parent.mkdir(parents=True)
+        original.write_bytes(b"exact synthetic original")
+        pin = hf.FilePin(hf.SHARDS[0][0], original.stat().st_size, "0" * 64)
+        def never_download(**kwargs):
+            raise AssertionError("Bad reuse must not silently fall back to download")
+        with self.assertRaisesRegex(hf.ImportBlocked, "full SHA256"):
+            hf.download_pin(pin, output, never_download, reuse_downloads=old)
+        self.assertFalse((output / "downloads" / pin.filename).exists())
+        outside = self.root / "outside.parquet"
+        outside.write_bytes(original.read_bytes())
+        original.unlink()
+        original.symlink_to(outside)
+        with self.assertRaisesRegex(hf.ImportBlocked, "escapes"):
+            hf.download_pin(pin, output, never_download, reuse_downloads=old)
 
     def test_actual_stereo_resampling_keeps_full_utterance(self):
         source = self.audio(stereo=True)

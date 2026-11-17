@@ -14,6 +14,8 @@ export REPO="$WORK/repo"
 cd "$REPO"
 export PYTHONPATH="$REPO/src"
 export PYTHONDONTWRITEBYTECODE=1
+# 只影响当前项目 shell/子进程，不修改现有服务环境；禁止间接 helper 回退到任意 pickle。
+export TORCH_FORCE_WEIGHTS_ONLY_LOAD=1
 export TMPDIR="$WORK/tmp"
 export XDG_CACHE_HOME="$WORK/cache"
 export HF_HOME="$WORK/hf-home"
@@ -23,7 +25,9 @@ export TIKTOKEN_CACHE_DIR="$WORK/cache/tiktoken"
 mkdir -p "$TMPDIR" "$XDG_CACHE_HOME"
 ```
 
-使用Python3.11创建隔离环境，安装`requirements/native.in`或本项目`[native]`extra。`requirements/native-cpu-macos.lock.txt`记录实际CPU测试环境，不能拿它代替Linux/CUDA wheel锁。GPU环境须独立保存解析版本、wheel来源/哈希、驱动和CUDA记录；不修改现有ComfyUI依赖。
+先阅读[依赖安全范围](../SECURITY.md)。`requirements/native.in`、`[native]`extra和旧CPU lock保留兼容性复现版本；其中Torch2.8存在可绕过`weights_only=True`的已知checkpoint漏洞，**不是推荐生产环境或未知checkpoint加载基线**。只复现该次测试时才按Python3.11记录创建隔离环境；不能把测试通过当成依赖安全证明。
+
+真实权重任务优先使用经过实际CPU、tiny BF16及恢复gate的Torch>=2.10与匹配torchaudio；已有Pod的Torch2.12.1只读借用不代表旧pin或其他告警已经修复。任何新组合都须单独验证，不盲改全局环境。`requirements/native-cpu-macos.lock.txt`不能代替Linux/CUDA wheel锁；另存实际解析版本、wheel来源/哈希、驱动和CUDA记录。只读取固定官方哈希资产或本次自产且绑定身份的checkpoint；禁止不安全pickle回退。
 
 官方代码单独checkout完整SHA `d9e41aac89fd00b3d71497fddb287b7f24613712`，保留其LICENSE和LICENSE_ZH.txt。原生加载器检查git身份和模块来源，不接受换名目录或任意remote code。以下不调用官方通用下载助手，避免下载不需要的推理后端/其他许可资产。
 

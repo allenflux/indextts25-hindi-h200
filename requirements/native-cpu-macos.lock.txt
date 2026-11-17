@@ -1,5 +1,8 @@
-# Resolved CPU test environment: CPython3.11.15 macOS arm64.
-# Not a Linux/CUDA wheel lock; resolve and archive GPU dependencies separately.
+# HISTORICAL REPRODUCTION RECORD: CPython3.11.15 macOS arm64.
+# Torch2.8 has known checkpoint RCE even with weights_only=True (CVE-2026-24747).
+# Not a recommended production/unknown-checkpoint baseline; see ../SECURITY.md.
+# Not a Linux/CUDA wheel lock; no version pins changed by this security note.
+# Real checkpoint work needs a separately tested patched runtime and matching torchaudio.
 antlr4-python3-runtime==4.9.3
 certifi==2026.10.23
 cffi==2.1.1

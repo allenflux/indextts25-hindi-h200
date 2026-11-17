@@ -69,6 +69,12 @@ def _integer(value, label, minimum=1, maximum=None):
     return value
 
 
+def duration_cap(value):
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 1 <= value <= 20:
+        raise ImportBlocked("max-duration-seconds must be finite and within 1..20")
+    return float(value)
+
+
 def rights_record(path):
     if path is None:
         raise ImportBlocked("--download requires an operator-created --rights-record; this tool never accepts terms")
@@ -180,12 +186,67 @@ def metadata_plan(api, *, max_bytes=MAX_BYTES, max_shards=2):
     return report, tuple(selected), tuple(documents)
 
 
-def download_pin(pin, output, download):
+def reuse_directory(value):
+    if value is None:
+        return None
+    supplied = Path(value)
+    if supplied.name != "downloads" or supplied.is_symlink():
+        raise ImportBlocked("--reuse-downloads must name the prior import's existing downloads directory")
+    root = supplied.resolve(strict=True)
+    if not root.is_dir():
+        raise ImportBlocked("--reuse-downloads is not an existing directory")
+    return root
+
+
+def _copy_verified_reuse(pin, output, source_root):
+    """Inspect only an explicitly allowed shard path; never scan the old folder."""
+    if source_root is None or pin.filename not in {name for name, _ in SHARDS}:
+        return None
+    source_root = reuse_directory(source_root)
+    candidate = source_root / pin.filename
+    if not candidate.exists() and not candidate.is_symlink():
+        return None
+    source = candidate.resolve(strict=True)
+    if not source.is_relative_to(source_root) or not source.is_file() or source.stat().st_size != pin.size:
+        raise ImportBlocked("Existing shard escapes the reuse directory or has an incorrect size")
+    if not isinstance(pin.sha256, str) or not SHA256.fullmatch(pin.sha256):
+        raise ImportBlocked("Existing shard reuse requires current pinned Hub SHA256 metadata")
+    destination = output / "downloads" / pin.filename
+    if destination.exists() or destination.is_symlink():
+        raise ImportBlocked("Refusing to overwrite a new import's download file")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    partial = destination.with_name(destination.name + ".reuse-part")
+    digest, count, created = hashlib.sha256(), 0, False
+    try:
+        with source.open("rb") as original, partial.open("xb") as copied:
+            created = True
+            for chunk in iter(lambda: original.read(1024 * 1024), b""):
+                count += len(chunk)
+                if count > pin.size:
+                    raise ImportBlocked("Existing shard grew while re-verifying")
+                digest.update(chunk)
+                copied.write(chunk)
+            copied.flush()
+            os.fsync(copied.fileno())
+        if count != pin.size or digest.hexdigest() != pin.sha256:
+            raise ImportBlocked("Existing shard full SHA256 does not match current pinned Hub metadata")
+        # Same-directory link is atomic and refuses an existing destination.
+        os.link(partial, destination)
+    finally:
+        if created:
+            partial.unlink(missing_ok=True)
+    return destination, digest.hexdigest(), True
+
+
+def download_pin(pin, output, download, *, reuse_downloads=None):
     """Authenticate only through the existing HF store; all new cache stays local."""
     auth_environment()
     output = Path(output).resolve()
     if shutil.disk_usage(output).free < pin.size + 256 * 1024 * 1024:
         raise ImportBlocked("Insufficient disk headroom for the next bounded file")
+    reused = _copy_verified_reuse(pin, output, reuse_downloads)
+    if reused is not None:
+        return reused
     try:
         result = download(repo_id=REPOSITORY, filename=pin.filename, repo_type="dataset", revision=REVISION,
                           token=None, endpoint=ENDPOINT, cache_dir=str(output / ".cache" / "hf"),
@@ -204,7 +265,7 @@ def download_pin(pin, output, download):
         blob = hashlib.sha1(b"blob " + str(len(content)).encode() + b"\0" + content).hexdigest()
         if blob != pin.git_blob_sha1:
             raise ImportBlocked("Downloaded dataset audit document Git blob mismatch")
-    return path, actual
+    return path, actual, False
 
 
 def _speaker(value):
@@ -255,8 +316,9 @@ def _audio_cells(path, indices):
         index += 1
 
 
-def decode_audio(cell):
+def decode_audio(cell, *, max_duration_seconds=6):
     """Decode a selected embedded clip and resample its complete waveform, never trim."""
+    cap = duration_cap(max_duration_seconds)
     import numpy as np
     import soundfile as sf
     from scipy.signal import resample_poly
@@ -267,8 +329,8 @@ def decode_audio(cell):
         raise ImportBlocked("Selected embedded audio exceeds the 16 MiB bound")
     try:
         info = sf.info(io.BytesIO(payload))
-        if not 8000 <= info.samplerate <= 192000 or not 1 <= info.channels <= 2 or not 1 <= info.frames / info.samplerate <= 6:
-            raise ImportBlocked("Actual clip must be complete mono/stereo audio of 1..6 seconds")
+        if not 8000 <= info.samplerate <= 192000 or not 1 <= info.channels <= 2 or not 1 <= info.frames / info.samplerate <= cap:
+            raise ImportBlocked(f"Actual clip must be complete mono/stereo audio of 1..{cap:g} seconds")
         data, rate = sf.read(io.BytesIO(payload), dtype="float32", always_2d=True)
     except ImportBlocked:
         raise
@@ -279,7 +341,7 @@ def decode_audio(cell):
     mono = data.mean(axis=1, dtype="float64")
     factor = math.gcd(rate, TARGET_RATE)
     samples = resample_poly(mono, TARGET_RATE // factor, rate // factor) if rate != TARGET_RATE else mono
-    if not np.isfinite(samples).all() or not 1 <= len(samples) / TARGET_RATE <= 6 + 1 / TARGET_RATE:
+    if not np.isfinite(samples).all() or not 1 <= len(samples) / TARGET_RATE <= cap:
         raise ImportBlocked("Resampled audio has invalid length/values")
     peak = float(np.max(np.abs(samples)))
     rms = float(np.sqrt(np.mean(samples * samples)))
@@ -305,8 +367,9 @@ def decode_audio(cell):
                  "conversion": "whole utterance; arithmetic stereo mean if needed; scipy.resample_poly; PCM_16; no target truncation or gain normalization"}
 
 
-def import_parquets(shards, output, *, speakers=6, clips_per_speaker=4, max_rows=MAX_ROWS):
+def import_parquets(shards, output, *, speakers=6, clips_per_speaker=4, max_rows=MAX_ROWS, max_duration_seconds=6):
     """Return a genuine prepared dataset or fail; no guessed speakers/partial success."""
+    cap = duration_cap(max_duration_seconds)
     _integer(speakers, "speakers", minimum=6, maximum=MAX_CANDIDATE_SPEAKERS)
     _integer(clips_per_speaker, "clips_per_speaker", minimum=4, maximum=MAX_CANDIDATES_PER_SPEAKER)
     _integer(max_rows, "max_rows", maximum=MAX_ROWS)
@@ -328,7 +391,7 @@ def import_parquets(shards, output, *, speakers=6, clips_per_speaker=4, max_rows
             try:
                 speaker = _speaker(row.get("speaker_id"))
                 duration = row.get("duration")
-                if isinstance(duration, bool) or not isinstance(duration, (int, float)) or not math.isfinite(duration) or not 1 <= duration <= 6:
+                if isinstance(duration, bool) or not isinstance(duration, (int, float)) or not math.isfinite(duration) or not 1 <= duration <= cap:
                     raise ImportBlocked("duration")
                 if "lang" in row and (not isinstance(row["lang"], str) or row["lang"].strip().casefold() not in {"hindi", "hi"}):
                     raise ImportBlocked("language")
@@ -359,7 +422,7 @@ def import_parquets(shards, output, *, speakers=6, clips_per_speaker=4, max_rows
             if speaker in completed:
                 continue
             try:
-                wav, info = decode_audio(cell)
+                wav, info = decode_audio(cell, max_duration_seconds=cap)
             except ImportBlocked:
                 skipped["audio_policy"] += 1
                 continue
@@ -402,11 +465,12 @@ def import_parquets(shards, output, *, speakers=6, clips_per_speaker=4, max_rows
     with raw.open("x", encoding="utf-8") as stream:
         for row in selected_rows:
             stream.write(json.dumps(row, ensure_ascii=False, allow_nan=False) + "\n")
-    manifest = prepare(raw, output, output / "prepared", max_seconds=6)
+    manifest = prepare(raw, output, output / "prepared", max_seconds=cap)
     validate(output / "prepared", output)
     report = {"schema_version": 1, "kind": "ivr_hindi_import", "status": "ready", "repository": REPOSITORY,
               "revision": REVISION, "speakers": len(completed), "clips": len(selected_rows),
               "examined_rows": examined, "skipped": dict(skipped), "counts": manifest["counts"],
+              "min_duration_seconds": 1.0, "max_duration_seconds": cap, "target_audio_truncated": False,
               "official_test_used": False, "split_origin": "Speaker-held-out splits from official TRAIN shards only",
               "speaker_mapping": "Published speaker_id to stable SHA256-derived local identifier; never gender/filename inference",
               "transcript_alignment_manually_verified": False, "tts_quality_verified": False,
@@ -419,12 +483,14 @@ def import_parquets(shards, output, *, speakers=6, clips_per_speaker=4, max_rows
 
 
 def run(args, *, api=None, download=None):
+    cap = duration_cap(args.max_duration_seconds)
     auth_environment(require_home=api is None)
     if api is None:
         from huggingface_hub import HfApi
         api = HfApi(endpoint=ENDPOINT)
     plan, shards, documents = metadata_plan(api, max_bytes=args.max_bytes, max_shards=args.max_shards)
     rights = rights_record(args.rights_record) if args.download else None
+    reuse = reuse_directory(args.reuse_downloads) if args.download else None
     output = Path(args.output)
     if output.exists() or output.is_symlink():
         raise ImportBlocked("Output must be a fresh directory; metadata and transfer runs use different directories")
@@ -432,56 +498,68 @@ def run(args, *, api=None, download=None):
     audit = output / "audit"
     audit.mkdir()
     plan.update(max_examined_rows=args.max_examined_rows, target_speakers=args.speakers,
-                clips_per_speaker=args.clips_per_speaker, rights=rights)
+                clips_per_speaker=args.clips_per_speaker, max_duration_seconds=cap,
+                reuse_downloads_requested=args.reuse_downloads is not None, rights=rights)
     write_json(audit / "plan.json", plan)
     if not args.download:
         return {"status": "metadata_only", "repository": REPOSITORY, "revision": REVISION,
                 "planned_bytes": plan["planned_bytes"], "max_bytes": args.max_bytes,
-                "corpus_bytes_downloaded": 0, "audit": str(audit / "plan.json")}
+                "corpus_bytes_downloaded": 0, "max_duration_seconds": cap, "audit": str(audit / "plan.json")}
     if download is None:
         from huggingface_hub import hf_hub_download
         download = hf_hub_download
-    transferred, inventory = 0, []
+    transferred, new_bytes, reused_bytes, inventory = 0, 0, 0, []
     for pin in documents:
-        path, sha = download_pin(pin, output, download)
+        path, sha, reused = download_pin(pin, output, download)
         transferred += pin.size
+        new_bytes += pin.size
         target = audit / pin.filename
         if target.exists():
             raise ImportBlocked("Refusing to overwrite audit documents")
         shutil.copyfile(path, target)
-        inventory.append({**pin.record(), "actual_sha256": sha})
+        inventory.append({**pin.record(), "actual_sha256": sha, "reused": reused})
     card = (audit / "README.md").read_text(encoding="utf-8")
     if "text-to-speech" not in card.casefold() and re.search(r"\btts\b", card, re.IGNORECASE) is None:
         raise ImportBlocked("Pinned README does not contain the reviewed TTS-purpose statement")
     # Pull the next fixed train shard only if the bounded selector still needs
     # it. A complete first-shard result or exhausted row cap never fetches #2.
     def local_shards():
-        nonlocal transferred
+        nonlocal transferred, new_bytes, reused_bytes
         for pin in shards:
-            path, sha = download_pin(pin, output, download)
+            path, sha, reused = download_pin(pin, output, download, reuse_downloads=reuse)
             transferred += pin.size
+            if reused:
+                reused_bytes += pin.size
+            else:
+                new_bytes += pin.size
             if transferred > args.max_bytes:
                 raise ImportBlocked("Verified corpus/audit file bytes exceeded the reviewed budget")
-            inventory.append({**pin.record(), "actual_sha256": sha})
+            inventory.append({**pin.record(), "actual_sha256": sha, "reused": reused})
             yield pin.filename, path
     result = None
     try:
         result = import_parquets(local_shards(), output, speakers=args.speakers,
-                                 clips_per_speaker=args.clips_per_speaker, max_rows=args.max_examined_rows)
+                                 clips_per_speaker=args.clips_per_speaker, max_rows=args.max_examined_rows,
+                                 max_duration_seconds=cap)
     finally:
         write_json(audit / "downloaded_files.json", {"files": inventory, "verified_file_bytes": transferred,
+                                                     "newly_downloaded_file_bytes": new_bytes, "reused_file_bytes": reused_bytes,
                                                      "network_wire_bytes_measured": False,
                                                      "import_completed": result is not None,
                                                      "rights": rights, "attribution": ATTRIBUTION,
                                                      "license_url": LICENSE_URL})
     return {"status": result["status"], "clips": result["clips"], "speakers": result["speakers"],
-            "counts": result["counts"], "verified_downloaded_file_bytes": transferred, "network_wire_bytes_measured": False,
+            "counts": result["counts"], "verified_file_bytes": transferred,
+            "newly_downloaded_file_bytes": new_bytes, "reused_file_bytes": reused_bytes,
+            "network_wire_bytes_measured": False, "max_duration_seconds": cap,
             "prepared": str(output / "prepared"), "audio_root": str(output)}
 
 
 def parser():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--output", type=Path, required=True)
+    p.add_argument("--reuse-downloads", type=Path, help="Prior import downloads directory; only the two pinned train shards are re-hashed and copied")
+    p.add_argument("--max-duration-seconds", type=float, default=6.0, help="Complete-utterance duration cap, default 6 and hard maximum 20; never truncates targets")
     p.add_argument("--download", action="store_true", help="Explicit opt-in after operator reviewed/accepted dataset conditions")
     p.add_argument("--rights-record", type=Path)
     p.add_argument("--max-bytes", type=int, default=MAX_BYTES)
@@ -495,6 +573,7 @@ def parser():
 def main(argv=None):
     args = parser().parse_args(argv)
     try:
+        duration_cap(args.max_duration_seconds)
         _integer(args.max_examined_rows, "max_examined_rows", maximum=MAX_ROWS)
         _integer(args.speakers, "speakers", minimum=6, maximum=MAX_CANDIDATE_SPEAKERS)
         _integer(args.clips_per_speaker, "clips_per_speaker", minimum=4, maximum=MAX_CANDIDATES_PER_SPEAKER)
