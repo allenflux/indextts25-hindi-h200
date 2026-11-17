@@ -1,19 +1,40 @@
-# 原生导出与未来 Hugging Face 发布
+# 原生GPT导出与实验性 Hugging Face 发布
 
-早期阶段仅发布原创训练准备代码；当前已在本地完成v1真实100次optimizer更新、完整GPT合并导出、stock单条feature FP32 parity和真实WAV生成，另有独立fresh v2在200次更新处保存checkpoint与adapter。**Hindi质量gate仍未通过**，这些产物是实验结果，不能称为通过验收的Hindi模型。实际范围与已知失败见 [VALIDATION.md](../VALIDATION.md)。没有创建Hugging Face模型仓库，也没有上传权重；未来HF owner为 **fluxa0223**。公开发布前必须通过 [评测与发布门槛](EVALUATION.md)。
+用户已明确要求将当前候选上传GitHub和Hugging Face；本次准备发布**清楚标记experimental的冻结best100**。这是实验产物公开，不等于Hindi质量、旧语言或生产部署验收通过。公开[HF仓库](https://huggingface.co/fluxa0223/IndexTTS-2.5-Hindi-best100-experimental)已在用户本人网页登录会话中以`fluxa0223`为owner创建；当前仅有初始README，**权重尚未上传**。后续上传成功以实际回执、文件清单与远端哈希核验为准。[最新实测](../VALIDATION.md)、[有限test与旧语言stress](FINITE_ACCEPTANCE.md)、[分发边界](DISTRIBUTION.md)
 
-外部社区参考后端训练两个heads，却不在其adapter中导出text_head；该限制仅适用于外部路线。原生v1已完整保存/合并两个head，完成真实预训练模型的严格重载、单feature logits对照与stock WAV生成。保存/加载一致性和WAV存在不能代替Hindi质量、人工试听或旧语言回归；不要把当前实验checkpoint标为已通过质量验收的Hindi adapter。
+## 当前实际候选
 
-原始模型保留只读，Hindi adapter 单独版本化。导出后在 `$HI_H200_WORK/exports/hindi-VERSION` 创建全新白名单 bundle，仅放已审核的适配器参数、机器可读配置/原始模型 revision及必要哈希、完整许可证和声明、评测报告与模型卡。实际导出文件名须以锁定后端产物为准；本项目没有虚构现成 adapter。
+最新pilot从原始官方2.5独立训练，按固定验证loss选择100步；500步的后续过拟合状态保留，不用test重选。完整checkpoint转标准adapter、7文件完整GPT合并、H200单feature FP32 parity及真实stock生成已完成。后续冻结test严格CER仍为50%，中文/日文单例Hindi-prompt stress出现识别差异，人工母语试听未完成。
 
-模型卡应说明：非官方实验、Hindi 数据来源与许可、训练/评测范围、基线和 adapter 加载方式、所用原始权重与代码 revision、硬件/实际优化步数、真实资源记录、旧语言回归、已知失败场景、提示音频/个人数据不随模型发布。上游要求的原始版权/许可证、非背书声明与下游条款需随衍生物保留。原始权重是否允许重新分发需另外核实；优先只发布允许分发的 adapter。
+原生导出保留text/mel两个head和全部可训练状态，原始模型保持独立。标准adapter、完整GPT、训练checkpoint用途不同，不能互相当作恢复文件，也不与社区格式互通。早期v1/v2只是历史诊断；不能用它们的状态替代当前best100或合并累计训练步数。
 
-最终在 HF 的目标可命名为 `fluxa0223/indextts25-hindi-adapter`，届时重新检查名称是否被占用、owner身份、公开权限与用户发布意图。使用 HF 官方 [上传指南](https://huggingface.co/docs/huggingface_hub/guides/upload) 与 [仓库管理指南](https://huggingface.co/docs/huggingface_hub/guides/repository) 的当前接口；只上传上述全新 bundle 的明确白名单文件。不要直接 upload_folder 整个项目、runs、features、checkpoints或数据目录。
+## 另建干净发布目录
 
-上传前逐个审核文件及 git/LFS 历史，不含：私人语音/文字/manifest/特征/提示、访问token、授权证据中的个人信息、optimizer状态或无许可复制的代码。新仓库中不能保留曾提交的敏感历史；发现问题先停下处理。令牌仅使用平台凭据机制，禁止写进命令、文档或仓库。没有上传操作的返回结果就不能写“已上传”。
+保留原始bundle、checkpoint及其完成记录不动；不要将整个workspace、runs、features或数据目录上传。逐文件建立公开白名单：
 
-HF 上传不能依赖本地 .gitignore 防止泄漏；使用独立干净目录及 `allow_patterns` 精确相对文件白名单，参考 [upload_folder API](https://huggingface.co/docs/huggingface_hub/en/package_reference/hf_api#huggingface_hub.HfApi.upload_folder)。不设置删除远端文件的参数，发布时先核实 `whoami` 与目标 owner。
+- 已验证且SHA与冻结best100一致的完整`gpt.pth`；如发布adapter，须明确为本项目原生格式并单独核验。
+- 完整原始版权与`LICENSE`、`LICENSE_ZH.txt`、`MODEL_LICENSE`、`NON_ENDORSEMENT.txt`。
+- 将已审阅的[中文模型卡模板](MODEL_CARD.zh.md)复制为发布目录`README.md`，保留全部已知失败与评测范围。
+- 仅包含可公开字段的来源/配置/哈希摘要、实际文件清单；如另附配置或tokenizer，核对固定来源及其分发条件。它们不能把一个GPT文件变成完整推理包。
 
-若未来使用参考 `extract_adapter.py`，它的默认语言/前端为Turkish，Hindi必须显式指定 `--lang hi --normalizer none --case none`；其他必要参数以锁定脚本 --help 为准。该提取器读取checkpoint使用不安全pickle兼容模式，因此只允许你自己训练且经过哈希核验的可信本地文件，禁止加载互联网上未知checkpoint。导出文件不是断点恢复checkpoint，且写入不是原子替换；先写独立本地目录、核验完成后再考虑发布。
+原始导出元数据可能包含本地路径或数据身份，不可不经审核直接上传。只保留公开必要字段，移除私人路径、clip/speaker标识和访问材料；清理后为发布目录**另建**哈希清单，不伪称改变后的元数据仍是原bundle的COMPLETE。GPT二进制必须与冻结候选哈希一致。
 
-原创原生adapter由`hi_h200_native`保存全部可训练张量，包括text/mel两个head；受限加载器绑定原始模型/LoRA规格并校验SHA，`weights_only=True`不是sandbox。微型CPU模型与真实v1预训练模型的导出/重载、单feature parity及stock波形生成已完成，详细范围见 [VALIDATION.md](../VALIDATION.md)。Hindi人工听评、更多held-out覆盖与旧语言回归仍未完成，质量gate未通过，不能据此直接发布。原生adapter不是社区格式，原生checkpoint与社区checkpoint不能互相resume。
+公开包不包含原始或生成音频、语料分片、提示、私人转写/manifest/特征、optimizer/RNG恢复状态、认证凭据或无许可代码。用户私下听评包与公开模型仓库分开处理，不能依赖`.gitignore`代替白名单审核。
+
+## 发布条件与真实阻塞
+
+实验公开可在适用许可、明确发布意图及必要审核满足后进行；人工质量/生产推荐gate未过时，须醒目标明限制，不能宣称正式Hindi支持、可安全生产替换或旧语言无退化。**不能只因质量gate未过就把用户已授权的诚实实验发布写成绝对禁止。**
+
+许可条件见[DISTRIBUTION](DISTRIBUTION.md)：核对商业适用、必要第三方权利，保留完整协议/版权/非背书声明，并以适当条款约束下游。商业条款适用性的确认保存在私下审核，不公开用户财务信息；不重复索取已完成的事实确认。数据访问已同意不是所有分发权的证明，缓存卡缺少额外gated字段也不证明平台无其他条件；未观察到禁止条款时，不虚构新禁令或自动要求作者另行许可。
+
+实际阻塞应具体记录：例如认证缺失/owner不匹配、平台拒绝上传、触发许可证条件但缺必要许可、发布包含私人材料或哈希不一致。未知事实列为待核，不能写成已触发禁令或已获全部授权。
+
+## GitHub与HF操作顺序
+
+GitHub保存非敏感原创代码、模型卡、安装说明和验证摘要，并链接实际HF产物；不把训练数据或多GB模型混入普通代码提交。
+
+操作记录（2026-11-17）：HF公开目标已创建为[`fluxa0223/IndexTTS-2.5-Hindi-best100-experimental`](https://huggingface.co/fluxa0223/IndexTTS-2.5-Hindi-best100-experimental)，当前阶段只有初始README，权重上传待完成。此操作状态不写入长期模型卡正文；模型卡引导读者以实际Files、不可变revision及manifest核对产物。创建使用用户本人的现有网页登录会话；没有借用Pod默认的其他只读账户，也未改动共享凭据。接下来仅向该明确目标上传经审核的权重与公开白名单，不读取、打印或向聊天索取token，不覆盖不相关内容。任何中转也仅限已授权的模型发布文件，不包含私人听评ZIP或训练数据。
+
+按HF官方[上传指南](https://huggingface.co/docs/huggingface_hub/guides/upload)与[仓库管理](https://huggingface.co/docs/huggingface_hub/guides/repository)接口，只提交独立目录的明确白名单；不要设置删除远端不相关文件的参数。[模型卡元数据](https://huggingface.co/docs/hub/model-cards#specifying-a-license)使用自定义bilibili许可，不标MIT。
+
+最后核对远端owner、公开状态、提交SHA、逐文件大小/哈希、完整许可和实际模型卡。没有成功回执与远端核验，不称已上传或可下载；保留失败原因和本地发布包。人工Hindi听评及完整旧语言回归继续单独记录，代码/ASR不能冒充完成。

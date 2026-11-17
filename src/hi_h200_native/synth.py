@@ -286,7 +286,7 @@ def _independent_output(path, workspace, protected):
     return target
 
 
-def metadata_preflight(args):
+def metadata_preflight(args, *, bundle_verifier=None):
     workspace = Path(args.workspace_root).resolve(strict=True)
     source = verify_source(args.official_repo)
     original, merged = Path(args.model_dir).resolve(strict=True), Path(args.merged_bundle).resolve(strict=True)
@@ -299,7 +299,8 @@ def metadata_preflight(args):
         raise SynthesisError("The explicit acceptance prompt must be inside the isolated workspace")
     output = _independent_output(args.output_dir, workspace, (source, original, merged))
     config, assets = verify_synth_assets(original, args.model_manifest)
-    merged_identity = verify_merged_bundle(merged, original, assets)
+    verifier = verify_merged_bundle if bundle_verifier is None else bundle_verifier
+    merged_identity = verifier(merged, original, assets)
     text = reviewed_hindi_text(source, args.text) if args.text is not None else None
     prompt = wav_info(args.prompt, prompt=True) if args.prompt is not None else None
     dependencies = dependency_report(workspace, source)
@@ -704,8 +705,8 @@ def execute_once(args, report, state):
                 sys.modules["torch"].cuda.empty_cache()
 
 
-def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__)
+def main(argv=None, *, bundle_verifier=None, description=None):
+    parser = argparse.ArgumentParser(description=__doc__ if description is None else description)
     for name in ("workspace-root", "official-repo", "model-dir", "model-manifest", "merged-bundle"):
         parser.add_argument("--" + name, type=Path)
     parser.add_argument("--probe-runtime-imports", action="store_true", help="Explicit stock import-only ABI check in fresh process; requires workspace/source/new output, constructs no models/frontends")
@@ -756,7 +757,7 @@ def main(argv=None):
             if not args.text_file.is_file() or args.text_file.stat().st_size > 16384:
                 raise SynthesisError("Text file must be a small local UTF-8 file")
             args.text = args.text_file.read_text(encoding="utf-8")
-        report, state = metadata_preflight(args)
+        report, state = metadata_preflight(args, bundle_verifier=bundle_verifier)
         if args.execute:
             report = execute_once(args, report, state)
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError, ImportError) as exc:
