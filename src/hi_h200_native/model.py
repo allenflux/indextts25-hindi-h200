@@ -216,6 +216,19 @@ def _row_gradient(parameter, rows):
     return parameter.register_hook(hook)
 
 
+def _sequence_cross_entropy(logits, targets):
+    """Mean token CE using the ordinary 2D NLL path.
+
+    [B,C,T] -> [B*T,C] preserves every token/target and the original mean
+    reduction. In strict CUDA determinism this avoids the spatial NLLLoss2d
+    kernel selected by a three-dimensional CE input.
+    """
+    if logits.ndim != 3 or targets.shape != (logits.shape[0], logits.shape[2]):
+        raise NativeModelError("Token loss expects [B,C,T] logits and [B,T] targets")
+    return F.cross_entropy(logits.transpose(1, 2).reshape(-1, logits.shape[1]).float(),
+                           targets.reshape(-1))
+
+
 class NativeHindiModel(nn.Module):
     """Batch-one real teacher-forcing loss; no padded-batch or synthesis claim."""
     def __init__(self, base, *, lora_rank=8, lora_alpha=16.0, lora_dropout=0.0,
@@ -347,8 +360,8 @@ class NativeHindiModel(nn.Module):
         text_logits, code_logits = self.base.get_logits(data["condition"], data["text_embeddings"], self.base.text_head,
                                                         data["mel_embeddings"], self.base.mel_head)
         text_logits = text_logits[:, :, :data["text_targets"].shape[1]]
-        text_loss = F.cross_entropy(text_logits.float(), data["text_targets"])
-        code_loss = F.cross_entropy(code_logits.float(), data["code_targets"])
+        text_loss = _sequence_cross_entropy(text_logits, data["text_targets"])
+        code_loss = _sequence_cross_entropy(code_logits, data["code_targets"])
         loss = code_loss + self.text_loss_weight * text_loss
         if not torch.isfinite(loss):
             raise NativeModelError("Nonfinite native teacher-forcing loss")
