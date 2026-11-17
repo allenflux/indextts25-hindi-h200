@@ -12,7 +12,7 @@ import unittest
 from hi_h200_native.tiny_gate import TinyGateError, _validate_args, compare_states, main, run_gate
 
 ROOT = Path(__file__).resolve().parents[1]
-OFFICIAL = Path(os.environ.get("HI_H200_OFFICIAL_SOURCE", ROOT / ".runtime/external-official"))
+OFFICIAL = Path(os.environ.get("HI_H200_OFFICIAL_REPO", os.environ.get("HI_H200_OFFICIAL_SOURCE", ROOT / ".runtime/external-official"))).resolve()
 TORCH = importlib.util.find_spec("torch") is not None
 NATIVE = TORCH and importlib.util.find_spec("transformers") is not None and OFFICIAL.is_dir()
 
