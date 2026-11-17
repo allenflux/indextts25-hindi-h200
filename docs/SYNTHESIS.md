@@ -14,7 +14,7 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src \
 
 实际 stock 路线需要的官方直接约束包含：`torch==2.8.*`、`torchaudio==2.8.*`、`transformers==4.52.1`、`numpy==2.2.6`、`librosa==0.10.2.post1`、`numba==0.63.0`、`descript-audiotools==0.7.2`、`munch==4.0.0`、`modelscope==1.27.0`、`safetensors==0.5.2`、`tokenizers==0.21.0`、`sentencepiece>=0.2.1`、`einops>=0.8.1`、`omegaconf>=2.3.0`、`openai-whisper>=20231117`、`tqdm>=4.67.1`、`requests>=2.28`、`fugashi>=1.2.0`、`unidic-lite>=1.0.0`。Linux 使用官方未固定版本的 `WeTextProcessing`（还需可用的 Pynini），Mac/Windows 使用 `wetext>=0.0.9`。`argbind`、`tiktoken`、PyYAML、SciPy、Hugging Face Hub、packaging 等传递依赖也会检查；没有给这些包编造官方版本锁。实际输出为当前平台的完整所选清单。
 
-虽然只合成 Hindi，官方构造器仍无条件 import ModelScope，并初始化日语 Tagger 与中英 Normalizer。`use_qwen_emo=False` 不会消除该 ModelScope import，但不会加载 Qwen 权重。没有使用 NeMo 数字展开、Qwen、MaskGCT、DeepSpeed、FlashAttention、自定义 CUDA kernel 或 torch.compile。不需要为了这个入口安装官方所有 UI/训练/加速 extras。
+虽然只合成 Hindi，官方构造器仍无条件 import ModelScope，并初始化日语 Tagger 与中英 Normalizer。`use_qwen_emo=False` 不会消除该 ModelScope import，但不会加载 Qwen 权重。没有使用 NeMo 数字展开、Qwen、MaskGCT、DeepSpeed、自定义 CUDA kernel 或 torch.compile；不安装或显式启用可选 flash-attn 扩展，Torch 内置 SDPA 仍可能选择 Flash kernel。不需要为了这个入口安装官方所有 UI/训练/加速 extras。
 
 缓存适配只继承官方 TextNormalizer 并改变真实中英 Normalizer 的 `cache_dir`；其他构造参数保留官方值，所有 FST/text 操作仍由安装的真实库执行。运行时检查真实 API 显式支持 `cache_dir`，否则停止。缓存只写新 run 的 `runtime/cache/xdg/tn/{zh,en}`，避免官方默认写源码目录或共享包目录。CPU 注入测试只证明参数与路径合同，未证明真实 FST 已构建，也未证明完整 stock 前端逐字节等价，报告中的 `stock_frontend_full_parity_verified` 始终为 false。
 
@@ -58,3 +58,13 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src \
 ## 已有 CPU 覆盖
 
 `python -m unittest discover -s tests -p 'test_native_synth.py' -v` 覆盖精确源码/前端映射、Unicode、真实文件 SHA 与 immutable metadata、merged inventory、真实 PCM WAV、真实 socket 阻断、资源阈值、无覆写和缓存参数合同。没有用 mock 合成器冒充真实模型；完整预训练推理和音质必须另行实跑并审听。
+
+## 真实运行时导入预检
+
+`--check-deps-only` 只检查模块和版本。若需要验证实际 ABI 与传递导入，可在独立环境运行以下命令；它会真实导入官方模块，禁止网络，不构造模型、Tagger 或 FST，也不初始化 CUDA。输出目录必须全新且父目录已存在，结果写入 `import-probe.json`。导入通过仍不等于合成通过。
+
+```bash
+python -m hi_h200_native.synth --probe-runtime-imports \
+  --workspace-root "$WORK" --official-repo "$WORK/external/index-tts" \
+  --output-dir "$WORK/outputs/synth-import-001"
+```

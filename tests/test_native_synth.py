@@ -126,6 +126,13 @@ class NativeSynthesisMetadataTests(unittest.TestCase):
             output.writeframes(array.array("h", [value] * frames).tobytes())
         return path
 
+    def test_import_probe_requires_explicit_source_workspace_new_output(self):
+        result = subprocess.run([sys.executable, "-m", "hi_h200_native.synth", "--probe-runtime-imports"],
+                                cwd=ROOT, text=True, capture_output=True, timeout=20,
+                                env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1", PYTHONPATH=str(ROOT / "src")))
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("workspace/source/new output", result.stderr)
+
     def test_real_pcm_wav_metadata_rejects_silence_short_prompt_and_truncation(self):
         path = self.write_wav("prompt.wav")
         info = synth.wav_info(path, prompt=True)
@@ -205,11 +212,15 @@ class NativeSynthesisMetadataTests(unittest.TestCase):
         output = self.root / "output"
         output.mkdir()
         previous = os.environ.get("HF_HOME")
+        previous_config = os.environ.get("XDG_CONFIG_HOME")
+        previous_mpl = os.environ.get("MPLCONFIGDIR")
         before = Path.cwd()
         previous_bytecode = sys.dont_write_bytecode
         sys.dont_write_bytecode = False
         with synth.isolated_runtime(output, self.root, None) as environment:
             self.assertTrue(Path(environment["HF_HOME"]).is_relative_to(output))
+            self.assertTrue(Path(environment["XDG_CONFIG_HOME"]).is_relative_to(output))
+            self.assertTrue(Path(environment["MPLCONFIGDIR"]).is_relative_to(output))
             self.assertEqual(os.environ["HF_HUB_OFFLINE"], "1")
             self.assertEqual(os.environ["TORCH_FORCE_WEIGHTS_ONLY_LOAD"], "1")
             self.assertEqual(Path.cwd(), output / "runtime")
@@ -218,6 +229,8 @@ class NativeSynthesisMetadataTests(unittest.TestCase):
         sys.dont_write_bytecode = previous_bytecode
         self.assertEqual(Path.cwd(), before)
         self.assertEqual(os.environ.get("HF_HOME"), previous)
+        self.assertEqual(os.environ.get("XDG_CONFIG_HOME"), previous_config)
+        self.assertEqual(os.environ.get("MPLCONFIGDIR"), previous_mpl)
 
 
 if __name__ == "__main__":

@@ -405,7 +405,7 @@ def isolated_runtime(output, source, gpu_id):
     cache = runtime / "cache"
     cache.mkdir()
     updates = {name: str(cache / leaf) for name, leaf in {
-        "XDG_CACHE_HOME":"xdg", "HF_HOME":"huggingface", "HF_HUB_CACHE":"huggingface/hub",
+        "XDG_CACHE_HOME":"xdg", "XDG_CONFIG_HOME":"config", "HF_HOME":"huggingface", "HF_HUB_CACHE":"huggingface/hub",
         "HUGGINGFACE_HUB_CACHE":"huggingface/hub", "MODELSCOPE_CACHE":"modelscope", "TORCH_HOME":"torch",
         "TORCH_EXTENSIONS_DIR":"torch_extensions", "NUMBA_CACHE_DIR":"numba", "TIKTOKEN_CACHE_DIR":"tiktoken",
         "TRITON_CACHE_DIR":"triton", "CUDA_CACHE_PATH":"cuda", "MPLCONFIGDIR":"matplotlib", "TMPDIR":"tmp"}.items()}
@@ -477,7 +477,7 @@ def cache_normalizer_class(base, cache_root, *, factories=None, system=None):
 
 
 @contextmanager
-def _runtime_import(source, cache_environment):
+def _runtime_import(source, cache_environment, *, install_cache_adapter=True):
     for name, module in tuple(sys.modules.items()):
         if name.startswith("indextts") and getattr(module, "__file__", None) and not Path(module.__file__).resolve().is_relative_to(source):
             raise SynthesisError("Another IndexTTS tree is imported; use a fresh isolated synthesis process")
@@ -500,8 +500,9 @@ def _runtime_import(source, cache_environment):
         saved_hub = constants.HF_HUB_CACHE, constants.HF_HUB_OFFLINE
         constants.HF_HUB_CACHE = cache_environment["HF_HUB_CACHE"]
         constants.HF_HUB_OFFLINE = True
-        original_normalizer = module.TextNormalizer
-        module.TextNormalizer = cache_normalizer_class(original_normalizer, Path(cache_environment["XDG_CACHE_HOME"]) / "tn")
+        if install_cache_adapter:
+            original_normalizer = module.TextNormalizer
+            module.TextNormalizer = cache_normalizer_class(original_normalizer, Path(cache_environment["XDG_CACHE_HOME"]) / "tn")
         yield module.IndexTTS2
     finally:
         for name, value in saved.items():
@@ -518,6 +519,51 @@ def _write_json(path, value):
         stream.write("\n")
         stream.flush()
         os.fsync(stream.fileno())
+
+
+def probe_official_import(official_repo, workspace_root, output_dir):
+    """Import the real stock module only; never call a model/FST constructor.
+
+    Run in a fresh process. GPU visibility is empty, local cache/config directories
+    and restricted checkpoint loads are enforced, and Python IP access is blocked.
+    A successful import does not prove frontend construction or synthesis works.
+    """
+    source = verify_source(official_repo)
+    workspace = Path(workspace_root).resolve(strict=True)
+    if not source.is_relative_to(workspace):
+        raise SynthesisError("Import probe source must be inside the isolated workspace")
+    if "torch" in sys.modules:
+        raise SynthesisError("Run the import-only probe in a fresh process before importing Torch")
+    output = _independent_output(output_dir, workspace, (source,))
+    if output is None:
+        raise SynthesisError("Import probe requires a fresh --output-dir")
+    output.mkdir(mode=0o700)
+    report = {"status":"stock_import_only_started", "official_commit":OFFICIAL_COMMIT,
+              "runtime_import_verified":False, "models_loaded":False, "model_constructor_called":False,
+              "normalizer_constructor_called":False, "cuda_accessed":False,
+              "cuda_context_initialized":False, "synthesis_executed":False,
+              "stock_frontend_constructor_verified":False, "quality_verified":False}
+    try:
+        with isolated_runtime(output, source, "") as environment:
+            with _runtime_import(source, environment, install_cache_adapter=False):
+                import torch
+                initialized = torch.cuda.is_initialized()
+                report["cuda_context_initialized"] = initialized
+                if initialized:
+                    report["cuda_accessed"] = True
+                    raise SynthesisError("An imported dependency unexpectedly initialized CUDA")
+                report.update(status="stock_import_only_passed", runtime_import_verified=True,
+                              torch_version=torch.__version__,
+                              inference_module_sha256=sha256(source / "indextts/infer_v2_5.py"))
+    except Exception as exc:
+        imported_torch = sys.modules.get("torch")
+        if imported_torch is not None and hasattr(imported_torch, "cuda"):
+            initialized = imported_torch.cuda.is_initialized()
+            report.update(cuda_context_initialized=initialized, cuda_accessed=initialized)
+        report.update(status="stock_import_only_blocked", failure_type=type(exc).__name__,
+                      missing_module=getattr(exc, "name", None), reason=str(exc)[:4000])
+    _write_json(output / "import-probe.json", report)
+    return report
 
 
 def execute_once(args, report, state):
@@ -635,6 +681,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("workspace-root", "official-repo", "model-dir", "model-manifest", "merged-bundle"):
         parser.add_argument("--" + name, type=Path)
+    parser.add_argument("--probe-runtime-imports", action="store_true", help="Explicit stock import-only ABI check in fresh process; requires workspace/source/new output, constructs no models/frontends")
     parser.add_argument("--check-deps-only", action="store_true", help="Only inspect module presence/versions and the pinned source pyproject; no model import or download")
     text = parser.add_mutually_exclusive_group()
     text.add_argument("--text")
@@ -652,15 +699,23 @@ def main(argv=None):
     parser.add_argument("--min-free-ram-mib", type=float)
     parser.add_argument("--max-utilization", type=float)
     args = parser.parse_args(argv)
+    if args.probe_runtime_imports and (args.execute or args.check_deps_only):
+        parser.error("Import-only probes cannot combine with synthesis/dependency-only modes")
+    if args.probe_runtime_imports and any(value is None for value in (args.workspace_root, args.official_repo, args.output_dir)):
+        parser.error("Import-only probe requires workspace/source/new output")
     if args.check_deps_only and args.execute:
         parser.error("Dependency-only checks cannot execute synthesis")
-    if not args.check_deps_only and any(getattr(args, name.replace("-", "_")) is None for name in ("workspace-root", "official-repo", "model-dir", "model-manifest", "merged-bundle")):
+    if not args.check_deps_only and not args.probe_runtime_imports and any(getattr(args, name.replace("-", "_")) is None for name in ("workspace-root", "official-repo", "model-dir", "model-manifest", "merged-bundle")):
         parser.error("Metadata verification requires workspace/source/original manifest/merged paths")
     if args.execute and not args.allow_cuda:
         parser.error("--execute requires explicit --allow-cuda")
     if not 0 <= args.seed < 2**32 or not 8 <= args.max_text_tokens <= 120 or not 8 <= args.max_mel_tokens <= 512:
         parser.error("Use a uint32 seed and bounded text/code generation limits")
     try:
+        if args.probe_runtime_imports:
+            report = probe_official_import(args.official_repo, args.workspace_root, args.output_dir)
+            print(json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2))
+            return 0 if report["runtime_import_verified"] else 2
         if args.check_deps_only:
             source = verify_source(args.official_repo) if args.official_repo is not None else None
             report = {"status":"dependency_metadata_only", "models_loaded":False, "cuda_accessed":False,
