@@ -2,13 +2,13 @@
 
 原创 Hindi 数据工具与实验性原生 LoRA 训练实现。`hi_h200_native` 直接调用固定官方模块，已打通完整预训练2.5的BF16训练、跨进程恢复、完整GPT合并导出和stock真实WAV推理；没有导入或复制未许可社区代码。
 
-**真实Hindi训练、导出和stock生成已实现，正式质量gate仍未通过。** 最新64条/16人pilot按固定验证loss选出的best100已完成标准adapter转换、完整GPT合并、H200 FP32 stock parity和两句真实WAV。相同ASR口径下，新4词句CER从0.7222降至0.2222，未参与训练的VAL句从0.7449降至0.3469；这是小样本改善，ASR对真人参考也有明显误差，不能据此认证整体Hindi质量。人工Hindi试听与完整旧语言回归尚未完成，保留实验标识；本次公开包的许可复核和真实加载结果见[发布记录](docs/PUBLIC_RELEASE.md)。原模型未替换；HF实验仓库已创建，权重尚未上传。
+**真实Hindi训练、导出和stock生成已实现，正式质量gate仍未通过。** 最新64条/16人pilot按固定验证loss选出的best100已完成标准adapter转换、完整GPT合并、H200 FP32 stock parity和两句真实WAV。相同ASR口径下，新4词句CER从0.7222降至0.2222，未参与训练的VAL句从0.7449降至0.3469；这是小样本改善，ASR对真人参考也有明显误差，不能据此认证整体Hindi质量。人工Hindi试听与完整旧语言回归尚未完成，保留实验标识；本次公开包的许可复核和真实加载结果见[发布记录](docs/PUBLIC_RELEASE.md)。原模型未替换；已合并的完整GPT实验权重已[发布至HF](https://huggingface.co/fluxa0223/IndexTTS-2.5-Hindi-best100-experimental/tree/117c7922e4dcedc3f9885f3f6efa5be8f54c7919)，它不是整套声学模型。
 
 完整范围见 [VALIDATION.md](VALIDATION.md)：本轮公开包准备/加载工具在Mac完成246/246 CPU检查；H200宿主既有189/189 CPU记录另列。CPU检查与随机模型gate用于机制验证，实际微调在GPU上运行；不能据loss下降或WAV存在宣称音质达标。官方tokenizer的hi槽位17和`<|hi|>`不代表官方训练过Hindi。
 
 最新冻结test与旧语言Hindi-prompt stress结果见 [有限验收记录](docs/FINITE_ACCEPTANCE.md)：两条Hindi test的严格CER仍为50%，中日各一例出现识别差异；人工听评与完整旧语言回归未完成，质量发布gate未通过。
 
-你下载的两份试听ZIP都没有模型权重。真实GPT候选的独立加载与当前ComfyUI节点的HI/固定清单双重阻塞见 [INSTALL_EXPERIMENTAL](docs/INSTALL_EXPERIMENTAL.md)；公开13文件包使用新脚本入口，不能套用私有原生bundle步骤。
+你下载的两份试听ZIP都没有模型权重。真实GPT候选的独立加载与当前ComfyUI节点的HI/固定清单双重阻塞见 [INSTALL_EXPERIMENTAL](docs/INSTALL_EXPERIMENTAL.md)；公开13文件包使用新脚本入口，不能套用私有原生bundle步骤。新的节点GPU验收正在进行，尚无结果；验收目标保持workflow结构，language参数可调整。
 
 ## 原生训练路线
 
@@ -61,4 +61,4 @@ raw UTF-8 JSONL每行必填：
 
 v1、v2和pilot均从原始base独立开始，不能合计为一个800步模型。早期v1新句未改善、v2只在已知TRAIN句改善及noKV/conditioning诊断保留于验证记录；默认cache保持True。历史原始review ZIP保留未改。私下听评应使用已补入完整双语协议和数据归属说明的`WORK/outputs/review/pilot-best100-licensed-review.zip`（1,041,300 bytes，16条目，原5 WAV哈希不变）；全部有限验收另存为`WORK/outputs/review/frozen-best100-finite-private.zip`（4,707,736 bytes，76条目，19 WAV，含全部14生成）。两包已由操作者自行下载，并在本机完成清单和许可核验；未上传Library、未公开，交付和许可边界见 [DISTRIBUTION](docs/DISTRIBUTION.md)。
 
-HF公开实验仓库已创建：[fluxa0223/IndexTTS-2.5-Hindi-best100-experimental](https://huggingface.co/fluxa0223/IndexTTS-2.5-Hindi-best100-experimental)，权重上传及不可变revision仍以实际回执为准；[导出说明](docs/EXPORT.md) 保留真实评测与权利审核门槛。本次所有GPU任务均已结束，`RUN_STATE.json`记录selected100、active training=false、quality_gate_passed=false及来源版本；两台已用共享pod的ComfyUI均未被我们停止、重启或修改；HTTP200仅在训练所在Pod的localhost直接实测，原Pod仅由Kite UI确认Ready1/1、restarts0。输出保留在独立持久目录；访问异常的未定原因与最终资源快照见验证记录。
+HF公开实验权重已发布：[固定revision `117c7922e4dcedc3f9885f3f6efa5be8f54c7919`](https://huggingface.co/fluxa0223/IndexTTS-2.5-Hindi-best100-experimental/tree/117c7922e4dcedc3f9885f3f6efa5be8f54c7919)；匿名远端核验的LFS元数据与12小文件范围见[发布记录](docs/PUBLIC_RELEASE.md)；[导出说明](docs/EXPORT.md) 保留真实评测与权利审核门槛。先前训练与stock合成任务已结束，新的节点GPU验收尚未取得结果；`RUN_STATE.json`记录selected100、active training=false、quality_gate_passed=false及来源版本；两台已用共享pod的ComfyUI均未被我们停止、重启或修改；HTTP200仅在训练所在Pod的localhost直接实测，原Pod仅由Kite UI确认Ready1/1、restarts0。输出保留在独立持久目录；访问异常的未定原因与最终资源快照见验证记录。

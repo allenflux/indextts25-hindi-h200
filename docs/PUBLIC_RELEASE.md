@@ -8,17 +8,19 @@
 |---|---|---|
 | GitHub代码 | 公开源码`36dffe21c0793b1544898e6bcb11f1d34af542a3`已推送并核对远端SHA | — |
 | CPU与审查 | Mac完整suite **246/246通过、0跳过、37.376秒**；独立审查通过 | 不代表任意环境兼容或音质通过 |
-| HF目标 | 用户本人浏览器会话以`fluxa0223`创建公开仓库，匿名API确认`private=false` | 权重上传、不可变权重revision及远端文件/哈希核验仍待实际回执 |
-| 本地公开包 | 精确13文件目录准备与验证通过 | 不能据本地包推断HF已有权重 |
+| HF发布 | 网页已上传冻结13文件；匿名核验确认`private=false`、14项inventory及固定revision | GPT仅核验LFS元数据，未重新下载3GB权重 |
+| 本地公开包 | 精确13文件目录准备、完整ZIP与本地payload验证通过 | 下载者仍应独立校验本地完整文件 |
 | 公开格式加载 | metadata preflight退出0，H200实际完整stock加载和生成退出0 | 不代表ComfyUI节点可直接替换 |
 
-HF目标为 [fluxa0223/IndexTTS-2.5-Hindi-best100-experimental](https://huggingface.co/fluxa0223/IndexTTS-2.5-Hindi-best100-experimental)。正常HF网页README编辑器已成功提交含“权重尚未上传”banner的已审模型卡，未调用fileChooser或特权页面；当前HEAD为`469daf1093966c58827dff5c7525e18e57000cb1`。匿名API复核`private=false`，仍只有`.gitattributes`（1519 bytes）与README（8883 bytes），没有`gpt.pth`；**这个HEAD不是权重revision，权重尚未上传**。
+HF实验权重已发布至 [fluxa0223/IndexTTS-2.5-Hindi-best100-experimental](https://huggingface.co/fluxa0223/IndexTTS-2.5-Hindi-best100-experimental/tree/117c7922e4dcedc3f9885f3f6efa5be8f54c7919)，网页上传commit为 **`117c7922e4dcedc3f9885f3f6efa5be8f54c7919`**。匿名核验退出0，状态`verified_remote_metadata_and_12_small_files`：`private=false`，14项inventory为冻结13文件加原`.gitattributes`，没有额外私人产物。
 
-远端README的SHA256为`30491b8260fa396bde50f53d3939a9fba1f697322140ff4029f5719e308414e7`，与本机暂存pre-release元数据逐字节一致；它与冻结13文件包内的8747字节README不同。最终上传权重时须原样恢复该13文件包README，以匹配原manifest；远端权重文件、哈希与不可变revision仍待实际核验。
+GPT的远端LFS元数据为 **3,259,538,991 bytes**、SHA256 `423a8491b8856c7c3075254b12defc3ae47dbd9e0de285772523ddd4e9a97021`，与冻结候选一致；其余12个小文件已实际匿名GET，合计 **966,027 payload bytes**，逐文件hash全部匹配。**本轮未重新下载远端3GB GPT，LFS元数据匹配不等于本轮完整文件读回。** 下载者应固定该revision，并继续做本地完整payload验证。
+
+历史`469daf1093966c58827dff5c7525e18e57000cb1`仅提交pre-release说明元数据，不是权重下载revision。此次上传使用冻结13文件原样README（8747 bytes），远端12个小文件hash已与原manifest匹配；未更改长期模型卡或冻结发布包。
 
 此前Chrome显示完成的本机ZIP仅2,277,806,075字节，整包SHA不符且缺EOCD；原不完整文件及后续截断片段均保留未改。按用户明确授权，仅补缺失字节并在CodexData另建完整副本：10个canonical parts均通过真实payload校验，固定偏移合并成功；新ZIP实际读回 **3,260,503,973 bytes**，SHA256为`b0df1c597222b78a4aa87cc6ee9a4d167ad12aa91706cff651bd403ca64618db`。恢复中两份100 MiB下载块也截断，保留正确前缀，仅补455187/504339字节尾部；其他缺失块经用户指定中转，各外包带完整许可、归属和模型卡，不含私人语料。
 
-完整ZIP的13个普通ZIP_STORED文件通过安全路径与CRC检查；流式复制至全新目录后，`prepare_hf_release --verify-release`实际返回`status=verified_public_release`、`files=13`，GPT SHA与冻结best100一致，`checkpoint_step=100`、`quality_gate_passed=false`、`uploaded=false`。本机完整包与待上传13文件目录现已实际准备并验证。下一步由用户在HF网页手选这13文件；此前自动chooser连续失败，已停止重试，CLI未启动。HF仍为上述469daf1元数据HEAD，仅README/`.gitattributes`、无权重，不能把本地验证写成远端上传成功。
+完整ZIP的13个普通ZIP_STORED文件通过安全路径与CRC检查；流式复制至全新目录后，`prepare_hf_release --verify-release`实际返回`status=verified_public_release`、`files=13`，GPT SHA与冻结best100一致，`checkpoint_step=100`、`quality_gate_passed=false`、`uploaded=false`。这是上传前的本地验证回执，`uploaded=false`只表示该次本地检查没有执行上传；随后已由用户网页手选13文件并完成上述HF发布。此前自动chooser停重试、CLI未启动，上传成功由网页commit与匿名远端核验另行确认。
 
 [恢复工具](../scripts/recover_public_download.py)仅负责本地固定偏移的分段与新副本合并，不负责网络或登录；它强制检查源包、已下前缀和最终整包的固定SHA，并预检磁盘空间。恢复工具7项、本地接收器9项小文件检查分别通过；它们与此次真实大包读回/解包验证分开记录，不是模型质量或新增GPU训练证据。[该版本Kite处理器](https://github.com/kite-org/kite/blob/7eddcc69fbadf0772cd187b9b75cba7b83cab1f9/pkg/resources/pod_handler.go#L401-L443)未实现HTTP Range，补尾采用独立小包；当前没有证据确定原传输截断的原因。 源端中转batch 7/7无错误，我方控制器已不活跃，ComfyUI健康检查HTTP200；恢复过程没有新增GPU工作。
 
@@ -34,13 +36,13 @@ HF目标为 [fluxa0223/IndexTTS-2.5-Hindi-best100-experimental](https://huggingf
 
 实际检查的T8节点固定版本为`1ff425ece89ef9824f58f0e4dbfb057991814e88`。其CPU meta结构检查已通过：**456/456 tensors**，missing、extra及shape mismatch均为0，strict加载通过。该检查只证明CPU meta设备上的key/shape兼容，没有运行节点GPU合成或ComfyUI queue。
 
-两项独立阻塞仍存在：UI/运行时语言白名单拒绝`HI`；节点的原始GPT固定大小与哈希清单拒绝候选。关闭SHA检查也不解除大小检查。因此，**不能直接覆盖当前ComfyUI原GPT**；独立stock公开加载成功不解除这些节点限制。原始模型保持不动，节点集成需另做隔离修改与真实验收。
+两项独立阻塞仍存在：UI/运行时语言白名单拒绝`HI`；节点的原始GPT固定大小与哈希清单拒绝候选。关闭SHA检查也不解除大小检查。因此，**不能直接覆盖当前ComfyUI原GPT**；独立stock公开加载成功不解除这些节点限制。原始模型保持不动；新的节点GPU验收正在进行，尚无结果。目标保持workflow结构，language参数可调整，不能据HF发布推断节点集成已完成。
 
 ## 发布收口边界
 
-上传完成后仍须实际核对owner、公开状态、不可变revision、远端完整文件清单、模型大小/哈希、许可与模型卡；以真实回执补记，不预填成功。实验标识、Hindi 50% test CER、旧语言stress差异及人工未完成等限制必须随权重保留。
+本次已核对owner、公开状态、不可变revision、inventory、GPT LFS size/SHA及12个小文件内容哈希；远端GPT未作3GB重新下载。实验标识、Hindi 50% test CER、旧语言stress差异及人工未完成等限制必须随权重保留。
 
-最终只读收尾检查确认：我方训练与合成任务均已退出，ComfyUI健康检查返回 **HTTP200**。
+先前公开包只读收尾检查确认训练与stock合成任务均已退出，ComfyUI健康检查返回 **HTTP200**；新的节点GPU验收结果仍待回收。
 
 此前两份私有评审/许可ZIP已由用户自行下载到Mac并逐hash验证，仍不公开，不传HF或Library；它们与当前13文件公开模型目录分开。当前未改全局依赖、未替换生产模型、未接受新数据访问条款，也不公开认证材料、私人音频/文本或财务确认。
 
@@ -63,4 +65,4 @@ HF目标为 [fluxa0223/IndexTTS-2.5-Hindi-best100-experimental](https://huggingf
 
 实际`DATA_ATTRIBUTION.md`为966字节，保留AI4Bharat、作者/论文、数据来源、固定revision、CC-BY-4.0链接及选择/重采样/文本规范化/微调改动。该[版权许可](https://creativecommons.org/licenses/by/4.0/legalcode.en)提供有条件分享与改作依据，不涵盖全部隐私及人格权。已有操作者本人处理访问条件、认证读取成功的记录；固定数据卡未发现`extra_gated_*`字段，不等于平台没有额外条件。访问成功不能代替分发权审核，也不能在缺乏具体限制证据时反推一律禁止公开实验GPT或必须另向作者申请许可。
 
-本轮只分发GPT、固定配置/tokenizer及许可/卡/公开摘要；W2V、CAMPPlus、BigVGAN权重没有附带，仍从固定官方base资产引用并遵守各自适用条款。这不额外授予辅助权重或声音的使用权。当前未发现新revision带来的新增许可阻塞；上传回执、远端权重哈希及不可变revision仍按实际发布步骤核验，人工听评和生产质量gate独立记录。
+本轮只分发GPT、固定配置/tokenizer及许可/卡/公开摘要；W2V、CAMPPlus、BigVGAN权重没有附带，仍从固定官方base资产引用并遵守各自适用条款。这不额外授予辅助权重或声音的使用权。当前未发现新revision带来的新增许可阻塞；本次上传与远端核验范围按上文实测记录，人工听评和生产质量gate独立记录。

@@ -15,7 +15,7 @@ best100 已在 Linux/H200 上由真实官方 2.5 加载、合成并完成有限�
 | Hindi best100 `gpt.pth` 实际字节数 | `3259538991` |
 | 选择依据 | 固定 pilot 验证点中 step100 的 loss 最低；未用后续 test/ASR 重新选模 |
 
-SHA256 来自已冻结、实际复核的文件。公开实验仓库已实际创建：[fluxa0223/IndexTTS-2.5-Hindi-best100-experimental](https://huggingface.co/fluxa0223/IndexTTS-2.5-Hindi-best100-experimental)。当前权重上传状态仍待成功回执，尚未记录可下载权重的不可变 revision；仓库页面存在不等于模型已经上传完成。上传完成后，还须按发布回执核对不可变 revision、文件清单及上述候选 SHA。仓库许可标记为 `other / bilibili-model-license`，指向固定官方模型许可；本项目工具的 MIT 许可不替代该许可。
+SHA256 来自已冻结、实际复核的文件。公开实验仓库已实际创建：[fluxa0223/IndexTTS-2.5-Hindi-best100-experimental](https://huggingface.co/fluxa0223/IndexTTS-2.5-Hindi-best100-experimental)。13文件权重包已通过网页上传，固定revision为`117c7922e4dcedc3f9885f3f6efa5be8f54c7919`。匿名核验确认公开状态、13文件加原`.gitattributes`的inventory、GPT LFS size/SHA及12个小文件实际GET/hash均匹配。GPT部分仅核验LFS元数据，没有再次下载3GB权重；下载后仍须校验本地完整文件，详细回执范围见[PUBLIC_RELEASE](PUBLIC_RELEASE.md)。仓库许可标记为 `other / bilibili-model-license`，指向固定官方模型许可；本项目工具的 MIT 许可不替代该许可。
 
 ## HF 公开 13 文件包：下载与独立加载
 
@@ -41,13 +41,13 @@ release.json
 
 ### 下载到缓存，再复制精确清单
 
-以下是供发布完成后运行的示例，本文没有执行模型下载。先从**实际权重上传成功回执**取得完整 40 位 HF commit；当前不能把分支 `main` 或仓库创建成功当作权重发布凭证。使用公开仓库匿名读取，不需要创建或发送新 token。
+以下按已发布的固定40位commit匿名下载；本轮远端核验没有重新下载GPT完整权重。运行示例后仍须通过本地13文件校验，不能用分支`main`或元数据commit代替该revision。公开读取不需要创建或发送新token。
 
 从本项目源码根目录运行，先设置真实持久 `WORK`，缓存与最终公开目录必须分开：
 
 ```bash
 export WORK="/path/to/persistent/indextts-hindi"  # 先改为实际持久目录
-export HF_RELEASE_REVISION=REPLACE_WITH_PUBLISHED_40_HEX_COMMIT
+export HF_RELEASE_REVISION=117c7922e4dcedc3f9885f3f6efa5be8f54c7919
 export HF_PUBLIC_CACHE="$WORK/cache/hf-public-downloads"
 export HF_PUBLIC_DIR="$WORK/public/hindi-best100"
 mkdir -p "$WORK/cache" "$WORK/public"
@@ -130,7 +130,7 @@ python scripts/synth_public_release.py \
   --output-dir "$WORK/outputs/hindi-public-check-001"
 ```
 
-默认只 metadata/hash，不导入 Torch、不加载模型或调用 CUDA。显式生成仍需在同一命令追加 `--execute --allow-cuda` 及 `--gpu-id`、`--min-free-gpu-mib`、`--min-free-ram-mib`、`--max-utilization`；其余离线、缓存隔离、绝对 GPT 配置、BF16/禁用加速与原入口一致。输出必须全新，资源门槛须按实际共享环境填写。新公开入口的代码/CPU 检查不自动等于公开包的 GPU 合成已经另行验收。
+默认只 metadata/hash，不导入 Torch、不加载模型或调用 CUDA。显式生成仍需在同一命令追加 `--execute --allow-cuda` 及 `--gpu-id`、`--min-free-gpu-mib`、`--min-free-ram-mib`、`--max-utilization`；其余离线、缓存隔离、绝对 GPT 配置、BF16/禁用加速与原入口一致。输出必须全新，资源门槛须按实际共享环境填写。本公开13文件格式已在H200实际完成独立stock构造和生成，见[发布记录](PUBLIC_RELEASE.md)；该结果不是ComfyUI节点验收或任意下载环境的兼容证明。
 
 ## 本地原始 bundle：保留原完成记录的后台路线
 
@@ -247,7 +247,7 @@ IndexTTS2(
 
 ## 当前 ComfyUI 节点的具体兼容结论
 
-本轮只读定位了现有节点目录 `custom_nodes/comfyui-indextts25-t8`（相对 ComfyUI 根目录），仓库为 [`T8mars/comfyui-indextts25-t8`](https://github.com/T8mars/comfyui-indextts25-t8/tree/1ff425ece89ef9824f58f0e4dbfb057991814e88)，HEAD 为 `1ff425ece89ef9824f58f0e4dbfb057991814e88`，未修改节点。**该固定版本目前不能把 best100 当作即插即用的 Hindi 模型：存在语言入口与权重清单两项独立阻塞。** 本项目的官方 stock 加载证据不等于该 ComfyUI 节点已加载或生成成功。
+本轮只读定位了现有节点目录 `custom_nodes/comfyui-indextts25-t8`（相对 ComfyUI 根目录），仓库为 [`T8mars/comfyui-indextts25-t8`](https://github.com/T8mars/comfyui-indextts25-t8/tree/1ff425ece89ef9824f58f0e4dbfb057991814e88)，HEAD 为 `1ff425ece89ef9824f58f0e4dbfb057991814e88`，未修改节点。**该固定版本目前不能把 best100 当作即插即用的 Hindi 模型：存在语言入口与权重清单两项独立阻塞。** 本项目的官方 stock 加载证据不等于该 ComfyUI 节点已加载或生成成功。 新的节点GPU验收正在进行，尚无结果；验收目标保持workflow结构，允许调整language参数。
 
 1. **当前标准生成入口不支持 HI。** 生成节点的语言选项及运行时白名单均只有 `ZH/EN/JA/ES/AR`；手传 `HI` 也会在取得模型前被拒绝。分段器的自动 token 上限也只覆盖这五种语言。其他 ASR/audio.cpp 节点出现的 `AUTO` 不是此标准生成路径的 Hindi 自动识别支持。[节点定义](https://github.com/T8mars/comfyui-indextts25-t8/blob/1ff425ece89ef9824f58f0e4dbfb057991814e88/nodes_v3.py#L2955)、[运行时白名单](https://github.com/T8mars/comfyui-indextts25-t8/blob/1ff425ece89ef9824f58f0e4dbfb057991814e88/runtime/inference_adapter.py#L100)、[分段器](https://github.com/T8mars/comfyui-indextts25-t8/blob/1ff425ece89ef9824f58f0e4dbfb057991814e88/runtime/text_planner.py#L19)。
 

@@ -1,6 +1,6 @@
 # 原生GPT导出与实验性 Hugging Face 发布
 
-用户已明确要求将当前候选上传GitHub和Hugging Face；本次准备发布**清楚标记experimental的冻结best100**。这是实验产物公开，不等于Hindi质量、旧语言或生产部署验收通过。公开[HF仓库](https://huggingface.co/fluxa0223/IndexTTS-2.5-Hindi-best100-experimental)已在用户本人网页登录会话中以`fluxa0223`为owner创建；当前仅有初始README，**权重尚未上传**。后续上传成功以实际回执、文件清单与远端哈希核验为准。[最新实测](../VALIDATION.md)、[有限test与旧语言stress](FINITE_ACCEPTANCE.md)、[分发边界](DISTRIBUTION.md)
+用户已明确要求将当前候选上传GitHub和Hugging Face；本次已发布**清楚标记experimental的冻结best100**。这是实验产物公开，不等于Hindi质量、旧语言或生产部署验收通过。公开[HF仓库](https://huggingface.co/fluxa0223/IndexTTS-2.5-Hindi-best100-experimental)已由用户网页上传13文件，固定revision为`117c7922e4dcedc3f9885f3f6efa5be8f54c7919`；匿名核验已通过远端inventory、GPT LFS元数据和12个小文件实际GET/hash。[最新实测](../VALIDATION.md)、[有限test与旧语言stress](FINITE_ACCEPTANCE.md)、[分发边界](DISTRIBUTION.md)
 
 ## 当前实际候选
 
@@ -33,8 +33,10 @@
 
 GitHub保存非敏感原创代码、模型卡、安装说明和验证摘要，并链接实际HF产物；不把训练数据或多GB模型混入普通代码提交。
 
-操作记录（2026-11-17）：HF公开目标已创建为[`fluxa0223/IndexTTS-2.5-Hindi-best100-experimental`](https://huggingface.co/fluxa0223/IndexTTS-2.5-Hindi-best100-experimental)，已通过普通网页编辑器提交含“权重尚未上传”提示的完整模型卡，commit为`469daf1093966c58827dff5c7525e18e57000cb1`；匿名复核仍只有README和`.gitattributes`，权重上传待完成。该commit仅是模型说明，不是权重下载revision。此操作状态不写入长期模型卡正文；模型卡引导读者以实际Files、不可变revision及manifest核对产物。创建使用用户本人的现有网页登录会话；没有借用Pod默认的其他只读账户，也未改动共享凭据。接下来仅向该明确目标上传经审核的权重与公开白名单，不读取、打印或向聊天索取token，不覆盖不相关内容。任何中转也仅限已授权的模型发布文件，不包含私人听评ZIP或训练数据。
+操作记录（2026-11-17）：已通过网页向[`fluxa0223/IndexTTS-2.5-Hindi-best100-experimental`](https://huggingface.co/fluxa0223/IndexTTS-2.5-Hindi-best100-experimental/tree/117c7922e4dcedc3f9885f3f6efa5be8f54c7919)上传冻结13文件，commit为`117c7922e4dcedc3f9885f3f6efa5be8f54c7919`。匿名核验确认`private=false`、14项inventory（13文件加原`.gitattributes`）；12个小文件实际GET并逐hash匹配，GPT按LFS元数据核对size/SHA，没有重新下载3GB权重。历史`469daf1093966c58827dff5c7525e18e57000cb1`仅为说明元数据commit，不是权重下载revision。完整核验范围见[PUBLIC_RELEASE](PUBLIC_RELEASE.md)。
+
+创建与上传使用用户本人网页登录会话，没有借用Pod默认其他账户或改共享凭据。长期模型卡及冻结13文件保持原样；私人听评ZIP、训练数据和认证材料未上传。
 
 按HF官方[上传指南](https://huggingface.co/docs/huggingface_hub/guides/upload)与[仓库管理](https://huggingface.co/docs/huggingface_hub/guides/repository)接口，只提交独立目录的明确白名单；不要设置删除远端不相关文件的参数。[模型卡元数据](https://huggingface.co/docs/hub/model-cards#specifying-a-license)使用自定义bilibili许可，不标MIT。
 
-最后核对远端owner、公开状态、提交SHA、逐文件大小/哈希、完整许可和实际模型卡。没有成功回执与远端核验，不称已上传或可下载；保留失败原因和本地发布包。人工Hindi听评及完整旧语言回归继续单独记录，代码/ASR不能冒充完成。
+本次远端核验退出0，状态为`verified_remote_metadata_and_12_small_files`；它不是对远端GPT的3GB重新下载/读回。下载者仍须固定上述revision并校验本地完整GPT。人工Hindi听评与完整旧语言回归继续独立记录；当前固定ComfyUI版本的HI/原始文件清单双阻塞仍在，新的节点GPU验收正在进行、尚无结果。
