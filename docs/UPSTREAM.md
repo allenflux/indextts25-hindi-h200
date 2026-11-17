@@ -20,7 +20,7 @@
 
 官方 [LICENSE](https://github.com/index-tts/index-tts/blob/d9e41aac89fd00b3d71497fddb287b7f24613712/LICENSE) 明确包含微调与 LoRA 等衍生物，要求保留原始声明和协议，并规定下游分发条件。请同时查看 [中文版本](https://github.com/index-tts/index-tts/blob/d9e41aac89fd00b3d71497fddb287b7f24613712/LICENSE_ZH.txt) 与所用模型 snapshot 的模型卡。这里记录授权边界，不把本仓库 MIT 扩展到它们。
 
-模型 snapshot、权重哈希、实际环境包版本未在本次会话锁定，因为未下载模型、未启动训练环境。部署方需提供完整的 revision + 文件哈希清单，保存安装解析结果和 `pip freeze --all`、CUDA/驱动版本，运行前检查 checkpoint config 确实为 2.5。部分上游模块可首次联网取辅助模型；准备好本地文件后用离线环境变量做加载试验，任何缺失应停机补齐，不要把 source-only 检查当成运行兼容性证明。
+早期source-only接口核查时尚未下载模型或启动训练环境，因此当时没有锁定模型snapshot、权重哈希和实际环境版本。后续已固定官方snapshot、核验完整资产并实际运行训练/导出/stock推理；当前范围、环境偏离和质量未通过的结果见 [VALIDATION.md](../VALIDATION.md)，不能将早期核查时点当作当前状态。部署方仍须保留完整revision、文件哈希、实际解析版本、`pip freeze --all`与CUDA/驱动记录，并检查checkpoint config确实为2.5。部分官方模块可首次联网取辅助模型；只在本地资产齐备后离线加载，缺失应停止，不把source-only检查当成任意环境兼容性证明。
 
 ## 可合法实现的训练路径
 
@@ -28,4 +28,4 @@
 
 获得社区明确授权后接入其后端是较短路径；否则可以在遵守官方许可的前提下原创实现。官方 [UnifiedVoice.forward](https://github.com/index-tts/index-tts/blob/d9e41aac89fd00b3d71497fddb287b7f24613712/indextts/gpt/model_v2.py#L596) 返回latents，没有现成训练loss或language-ID参数；[get_logits](https://github.com/index-tts/index-tts/blob/d9e41aac89fd00b3d71497fddb287b7f24613712/indextts/gpt/model_v2.py#L528) 也没有attention_mask参数。原创后端必须正确处理语言conditioning、teacher-forcing对齐与padding/CE mask、Conv1D LoRA、冻结与行梯度/weight-decay隔离、BF16累积、评测、导出重载及完整恢复。可先用batch1加累积缩小范围，再验证padded batching。
 
-原创batch1原生实现现已加入`hi_h200_native`，直接调用固定官方模块；真实官方微型GPT的forward/backward、optimizer更新、adapter与完整停止/恢复已做CPU测试。它们使用随机小权重/合成输入，未用mock模型冒充真实模型。完整预训练权重和真实Hindi音频链仍须通过实际提取、过拟合、恢复和100-update验收后才能宣称可用，见[NATIVE.md](NATIVE.md)。
+原创batch1原生实现`hi_h200_native`直接调用固定官方模块；真实官方微型GPT的CPU测试使用随机小权重/合成输入，未用mock模型冒充真实模型。后续完整预训练模型已完成真实Hindi特征提取、v1的100次更新与跨进程恢复、完整GPT合并、单feature stock parity和真实WAV生成；独立fresh v2已在200次更新处保存状态。**Hindi质量仍未通过验收**，不能据机制通过或训练loss下降宣称成品可用。当前结果以 [VALIDATION.md](../VALIDATION.md) 为准，操作流程见 [NATIVE.md](NATIVE.md)。

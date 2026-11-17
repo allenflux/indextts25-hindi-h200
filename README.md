@@ -1,8 +1,8 @@
 # IndexTTS 2.5 Hindi / H200
 
-原创 Hindi 数据工具与实验性原生 LoRA 训练实现。`hi_h200_native` 直接调用固定官方模块，已在CPU真实微型GPT上验证前向/反向、优化更新、完整adapter和停止/恢复；没有导入或复制未许可社区代码。
+原创 Hindi 数据工具与实验性原生 LoRA 训练实现。`hi_h200_native` 直接调用固定官方模块，已打通完整预训练2.5的BF16训练、跨进程恢复、完整GPT合并导出和stock真实WAV推理；没有导入或复制未许可社区代码。
 
-**实际范围见 [VALIDATION.md](VALIDATION.md)：175项本机CPU测试通过；H200随机微型模型BF16停止/跨进程恢复gate通过；官方资产完整核验、24条真实Hindi小批次及train 16条预训练特征提取已完成。预训练optimizer更新、100-step、完整合并模型/WAV与Hindi质量尚未验收。** CPU用于工具、数学与状态检查，实际预训练微调使用GPU；不能把随机微型模型结果当作Hindi训练或音质成功。官方tokenizer预留hi槽位17与`<|hi|>`不代表官方训练过Hindi。
+**Hindi成品目标尚未达到。** v1已完成100次optimizer更新，但同口径单句ASR检查中，原模型与合并模型均为CER 0.7222 / WER 1.0，未见改善；ASR自身有误差，人工Hindi试听与旧语言回归尚未完成，质量gate仍未通过。完整数值与范围见 [VALIDATION.md](VALIDATION.md)：本机191/191、H200宿主CPU189/189测试通过。CPU检查与随机模型gate用于机制验证，实际微调在GPU上运行；不能据loss下降或WAV存在宣称音质达标。官方tokenizer的hi槽位17和`<|hi|>`不代表官方训练过Hindi。
 
 ## 原生训练路线
 
@@ -14,7 +14,7 @@
 4. 用冻结的官方编码器生成原生特征并逐条校验，CPU检查与随机tiny BF16 gate用于机制验证，完整编码器和实际微调仍按共享GPU/宿主内存实时余量分阶段执行。
 5. 先小样本过拟合，再真实STOP/恢复、100次optimizer更新smoke，最后做 [Hindi/旧语言和发布评测](docs/EVALUATION.md)。参数只是实验起点，不承诺GPU小时或音质。
 
-原生实现当前只支持无padding的batch1加梯度累积；冻结声学模块/GPT基础参数，训练attention Conv1D LoRA、Hindi语言行、受限文字行和两个输出head。保存完整可训练状态，原始权重只读。不同语言adapter各自版本管理；不宣称社区adapter、vLLM、ComfyUI或DeepSpeed兼容。
+原生实现当前只支持无padding的batch1加梯度累积；冻结声学模块/GPT基础参数，训练attention Conv1D LoRA、Hindi语言行、受限文字行和两个输出head。保存完整可训练状态和两个head，原始权重只读；v1完整合并模型已由fresh stock严格加载并完成单feature FP32 logits对照与真实WAV生成。不同语言adapter各自版本管理；不宣称社区adapter、vLLM、ComfyUI或DeepSpeed兼容。
 
 ## CPU 数据工具快速检查
 
@@ -51,4 +51,4 @@ raw UTF-8 JSONL每行必填：
 
 外部社区兼容检查仍保留在`scripts/check_backend.py`等工具中，其训练器缺许可证，必须先取得明确许可。该路线的 [H200参考指南](docs/H200.md) 与 [恢复说明](docs/INTERRUPTION.md) 不适用于原生格式；原生路线本身不依赖它。
 
-未来HF owner为`fluxa0223`，目前未创建模型仓库或上传权重；[导出说明](docs/EXPORT.md) 保留真实评测与权利审核门槛。共享pod不主动停止、重启或改动ComfyUI，输出使用独立持久目录。一次提取后曾观测到Pod对象被外部重建，原因未确认，不能排除间接资源竞争；后续步骤须重新核实资源和持久状态。
+fresh v2从原始base独立训练，已在200次更新处成功停止并保存checkpoint/adapter；训练样本记忆明显，泛化未证明；step200完整合并导出已完成，训练句基线/合并模型WAV及ASR仍待验收。它不是v1续训，两次run不能合计成一个300步模型。未来HF owner为`fluxa0223`，目前未创建模型仓库或上传权重；[导出说明](docs/EXPORT.md) 保留真实评测与权利审核门槛。共享pod不主动停止、重启或改动ComfyUI，输出使用独立持久目录。一次提取后曾观测到Pod对象被外部重建，原因未确认，不能排除间接资源竞争；后续步骤须重新核实资源和持久状态。
