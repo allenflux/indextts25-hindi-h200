@@ -131,11 +131,29 @@ def write_audio(audio, path):
     return synth.wav_info(path)
 
 
+def _probe_output(path, workspace, comfy, source, model, prompt):
+    """Permit only a dedicated canonical Comfy output scratch, never its code/model trees."""
+    scratch = False
+    if workspace == comfy or workspace.is_relative_to(comfy):
+        output_root = comfy / 'output'
+        if (not output_root.is_dir() or output_root.is_symlink()
+                or output_root.resolve(strict=True) != output_root
+                or workspace == output_root or not workspace.is_relative_to(output_root)):
+            raise ValueError('WORK inside ComfyUI must be a dedicated canonical output scratch directory')
+        scratch = True
+    protected = (ROOT, source, model, prompt) + (() if scratch else (comfy,))
+    output = synth._independent_output(path, workspace, protected)
+    return output, {'comfy_output_scratch_exception': scratch,
+        'fresh_output_within_work_required': True, 'repo_node_models_and_prompt_protected': True}
+
+
 def preflight(args):
     if args.model_variant == "base" and args.language == "HI":
         raise ValueError("This probe does not test untrained base Hindi; choose a declared base language")
     import check_t8_compat as compat
     workspace = args.workspace_root.resolve(strict=True)
+    if args.workspace_root.absolute() != workspace:
+        raise ValueError("WORK must have no symlink components")
     paths = (args.node_root, args.model_dir, args.comfy_root)
     if any(p.absolute() != p.resolve(strict=True) for p in paths):
         raise ValueError("Use real directories without symlink components")
@@ -153,11 +171,11 @@ def preflight(args):
         raise ValueError('Prompt must be a hash-bound local WORK input')
     prompt_info = synth.wav_info(prompt, prompt=True)
     parameters = node_parameters(model, args.text, args.language)
-    output = synth._independent_output(args.output_dir, workspace, (ROOT, source, model, comfy, prompt))
+    output, output_policy = _probe_output(args.output_dir, workspace, comfy, source, model, prompt)
     if output is None:
         raise ValueError('A fresh output directory is required even for metadata planning')
     return {'status': 'metadata_verified_no_model_loaded', 'compatibility': {k:v for k,v in audit.items() if k != 'manifest_data'},
-        'model_variant': args.model_variant,
+        'model_variant': args.model_variant, 'output_path_policy': output_policy,
         'selected_manifest': {k:v for k,v in selection.items() if k != 'manifest_data'},
         'selected_model_identity': {'repository':manifest['modelRepository'], 'revision':manifest['modelRevision'],
             'gpt_sha256':manifest['files']['gpt.pth']['sha256'], 'gpt_bytes':manifest['files']['gpt.pth']['size']},

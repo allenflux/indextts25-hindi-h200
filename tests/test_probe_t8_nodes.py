@@ -121,6 +121,49 @@ class ProbeTests(unittest.TestCase):
             fake.selected_manifest.assert_called_once_with(node, model, 'a'*40, variant='base')
             self.assertNotIn('manifest_data', report['compatibility'])
 
+    def test_canonical_dedicated_comfy_output_scratch_preserves_protected_inputs(self):
+        with tempfile.TemporaryDirectory(dir=ROOT / '.runtime') as temporary:
+            comfy = Path(temporary) / 'ComfyUI'
+            workspace = comfy / 'output' / 'dedicated-probe'
+            workspace.mkdir(parents=True)
+            repo, node, model = (workspace / n for n in ('repo', 'node', 'model'))
+            for path in (repo, node, model):
+                path.mkdir()
+            prompt = workspace / 'prompt.wav'; prompt.write_bytes(b'input sentinel')
+            with patch.object(probe, 'ROOT', repo):
+                output, policy = probe._probe_output(workspace / 'fresh', workspace, comfy, node, model, prompt)
+                self.assertEqual(output, workspace / 'fresh')
+                self.assertTrue(policy['comfy_output_scratch_exception'])
+                self.assertFalse(output.exists())
+                for protected in (repo, node, model):
+                    with self.subTest(protected=protected.name), self.assertRaises(ValueError):
+                        probe._probe_output(protected / 'fresh', workspace, comfy, node, model, prompt)
+                with self.assertRaises(ValueError):
+                    probe._probe_output(prompt, workspace, comfy, node, model, prompt)
+                with self.assertRaises(ValueError):
+                    probe._probe_output(comfy / 'outside-scratch', workspace, comfy, node, model, prompt)
+            self.assertEqual(prompt.read_bytes(), b'input sentinel')
+
+    def test_comfy_source_model_user_roots_and_symlink_output_are_rejected(self):
+        with tempfile.TemporaryDirectory(dir=ROOT / '.runtime') as temporary:
+            root = Path(temporary); comfy = root / 'ComfyUI'; comfy.mkdir()
+            output_root = comfy / 'output'; output_root.mkdir()
+            for name in ('models', 'custom_nodes', 'user', 'comfy'):
+                workspace = comfy / name / 'probe'; workspace.mkdir(parents=True)
+                with self.subTest(name=name), self.assertRaisesRegex(ValueError, 'dedicated canonical output'):
+                    probe._probe_output(workspace / 'fresh', workspace, comfy, root, root, root)
+            with self.assertRaises(ValueError):
+                probe._probe_output(output_root / 'fresh', output_root, comfy, root, root, root)
+            output_root.rmdir()
+            external = root / 'external'; external.mkdir()
+            output_root.symlink_to(external, target_is_directory=True)
+            with self.assertRaises(ValueError):
+                probe._probe_output(output_root / 'probe' / 'fresh', output_root / 'probe', comfy, root, root, root)
+            # Outside-Comfy policy still protects the entire Comfy directory.
+            with patch.object(probe, 'ROOT', root / 'separate-repo'):
+                with self.assertRaises(ValueError):
+                    probe._probe_output(comfy / 'new-output', root, comfy, root / 'node', root / 'model', root / 'prompt')
+
     def test_base_hindi_rejected_before_paths_or_model_inspection(self):
         with patch.object(probe.synth, 'resource_admission', side_effect=AssertionError('no GPU')):
             with self.assertRaisesRegex(ValueError, 'untrained base Hindi'):
