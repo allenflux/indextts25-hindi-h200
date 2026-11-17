@@ -1,6 +1,6 @@
 # CPU 验证记录
 
-验证日期：2026-11-17。工作目录与临时文件均位于已核实的 CodexData APFS 挂载；没有修改其他项目、安装依赖或下载模型/语料。测试只读借用现有解释器，禁用 pycache，临时文件写入本项目 `.runtime`。
+验证日期：2026-11-17。工作目录与临时文件均位于已核实的 CodexData APFS 挂载；没有修改其他项目或下载模型/语料。GPU/训练依赖未安装；仅为构建验证在本项目 `.runtime` 隔离安装了setuptools84.1.0，没有改动系统Python环境。测试只读借用现有解释器，禁用 pycache，临时文件写入本项目 `.runtime`。
 
 ## 已实际执行
 
@@ -27,3 +27,5 @@
 没有现成Hindi权重，没有HF仓库创建或上传。当前所有质量/资源数值保持未测，不承诺GPU小时。
 
 补充回归：四个最低文件与全部SHA匹配时，`version: 2.0` 仍明确失败；目录名不能证明模型版本。此用例使用合成文件，不是实际权重加载或模型兼容性验证。README已修正生成器只打印配置/预检路径的描述，并明确当前没有trainer、不能独立端到端训练。
+
+构建依赖安全修复：GitHub实际报告的三个setuptools告警分别在78.1.1、83.0.0、84.1.0修复，因此固定至84.1.0（其Python>=3.10要求符合本项目范围），并改用SPDX形式的MIT元数据。已实际构建wheel、检查12个文件均为本项目包/许可元数据、确认零核心运行依赖，并从wheel执行CLI帮助检查。参见 [高危修复](https://github.com/pypa/setuptools/security/advisories/GHSA-5rjg-fvgr-3xxf)、[中危修复](https://github.com/advisories/GHSA-h35f-9h28-mq5c)、[低危修复](https://github.com/pypa/setuptools/security/advisories/GHSA-xmj3-9gf7-h52w)。告警后台关闭状态须另以GitHub返回为准。

@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools==75.6.0"]
+requires = ["setuptools==84.1.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,7 +7,7 @@ name = "indextts25-hindi-h200-prep"
 version = "0.1.0"
 description = "Original Hindi data and readiness tools for an externally licensed IndexTTS 2.5 fine-tuning backend"
 requires-python = ">=3.11,<3.14"
-license = {text = "MIT"}
+license = "MIT"
 readme = "README.md"
 dependencies = []
 
