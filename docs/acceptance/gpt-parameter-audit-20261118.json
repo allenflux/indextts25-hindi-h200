@@ -1,0 +1,107 @@
+{
+  "base": {
+    "bytes": 3259599833,
+    "sha256": "43a8f4c30eccdf201958d3b9713511482c19d56dc20b0b1c4ee1e6b080b19d85"
+  },
+  "base_tensor_count": 456,
+  "bitwise_identical_tensors": 402,
+  "candidate": {
+    "bytes": 3259538991,
+    "sha256": "423a8491b8856c7c3075254b12defc3ae47dbd9e0de285772523ddd4e9a97021"
+  },
+  "candidate_tensor_count": 456,
+  "changed_tensors": 54,
+  "checkpoint_containers": {
+    "base": "plain_tensor_state",
+    "candidate": "model"
+  },
+  "comparison": "bitwise bytes; signed zero and NaN payloads are not normalized",
+  "cpu_threads": 1,
+  "cuda_initialized": false,
+  "deadline_policy": "cooperative checks between bounded chunks; not an OS hard timeout",
+  "dtype_mismatches": [],
+  "elapsed_seconds": 17.156659161904827,
+  "embedding_rows": {
+    "lang_embedding.weight": {
+      "changed_rows": 1,
+      "hindi_row": 17,
+      "hindi_row_changed": true,
+      "non_hindi_all_bitwise_equal": true,
+      "non_hindi_changed_rows": 0,
+      "total_rows": 107,
+      "unchanged_rows": 106
+    },
+    "text_embedding.weight": {
+      "changed_rows": 69,
+      "total_rows": 60510,
+      "unchanged_rows": 60441
+    }
+  },
+  "groups": {
+    "attention_projection_biases": {
+      "bitwise_identical": 48,
+      "changed": 0,
+      "compared": 48
+    },
+    "conditioning_and_remaining_state": {
+      "bitwise_identical": 114,
+      "changed": 0,
+      "compared": 114
+    },
+    "language_embedding": {
+      "bitwise_identical": 0,
+      "changed": 1,
+      "compared": 1
+    },
+    "mel_embedding": {
+      "bitwise_identical": 1,
+      "changed": 0,
+      "compared": 1
+    },
+    "normalization": {
+      "bitwise_identical": 141,
+      "changed": 0,
+      "compared": 141
+    },
+    "positional_embeddings": {
+      "bitwise_identical": 2,
+      "changed": 0,
+      "compared": 2
+    },
+    "shared_attention_projection_weights": {
+      "bitwise_identical": 0,
+      "changed": 48,
+      "compared": 48
+    },
+    "shared_semantic_code_head": {
+      "bitwise_identical": 0,
+      "changed": 2,
+      "compared": 2
+    },
+    "shared_text_auxiliary_head": {
+      "bitwise_identical": 0,
+      "changed": 2,
+      "compared": 2
+    },
+    "text_embedding": {
+      "bitwise_identical": 0,
+      "changed": 1,
+      "compared": 1
+    },
+    "transformer_mlp": {
+      "bitwise_identical": 96,
+      "changed": 0,
+      "compared": 96
+    }
+  },
+  "hashes_verified": true,
+  "key_shape_dtype_equal": true,
+  "kind": "fixed_merged_gpt_parameter_audit",
+  "missing_keys": [],
+  "old_language_behavior_guaranteed_unchanged": false,
+  "quality_verified": false,
+  "schema_version": 1,
+  "shape_mismatches": [],
+  "status": "read_only_cpu_parameter_audit_completed",
+  "unexpected_keys": []
+}

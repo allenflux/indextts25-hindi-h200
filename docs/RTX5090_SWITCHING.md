@@ -2,6 +2,8 @@
 
 记录日期：2026-11-17。**已在同一自建 ComfyUI 服务内真实完成原版 ZH→Hindi HI→原版 ZH 三轮 queue 执行，三轮均成功；原 8 个节点 ID/类型与 5 条连线保持，首尾 WAV 文件和 PCM 完全相同。** 通过的是受控隔离环境的工作流与切换接口；Hindi 音质、整句完整性、旧语言无损及生产运行时等价性仍未通过，`quality_verified=false`、`speech_completeness_verified=false`、`framework_runtime_equivalence_verified=false`。没有将兼容副本部署到生产插件或替换原模型。
 
+最新请求的“只保留我们的完整模型、旧工作流默认选择不变”方案和实际参数证据见 [Part11：单模型默认替换](SINGLE_MODEL_UPGRADE.md)。下述双目录回切保留为已验历史及恢复依据；新单模型profile仅CPU核验，尚未GPU/生产部署或通过旧语言质量门槛。
+
 ## 最新真实三轮：同进程原版→Hindi→原版
 
 真实源码为 [`792305841240072e5a9f2616eb9e387126cae5a2`](https://github.com/allenflux/indextts25-hindi-h200/tree/792305841240072e5a9f2616eb9e387126cae5a2)。[公开脱敏验收报告](acceptance/rtx5090-switch-cycle-20261117.json)由已核实的原摘要脱敏导出：原摘要经 Kite 正常文件 Preview 逐字段取得，再在 Pod 计算 canonical JSON SHA256，与本地原摘要完全一致，值为 `ad6e7af9de23763d9ea903444fe0c714b68abfef4de3546400a8542bcb6ae0ad`。公开报告泛化内部目标名并增加脱敏说明，因此**不是声称公开文件本身的 canonical SHA 仍等于原摘要**；音频、性能和状态字段不变。这是实际模型与真实 ComfyUI queue 的结果，不是 CPU mock 状态机输出。下文 6-1/6-5 仅为操作者所选实例的简短标签，不公开内部完整名称或路径。
