@@ -16,11 +16,11 @@ HF目标为 [fluxa0223/IndexTTS-2.5-Hindi-best100-experimental](https://huggingf
 
 远端README的SHA256为`30491b8260fa396bde50f53d3939a9fba1f697322140ff4029f5719e308414e7`，与本机暂存pre-release元数据逐字节一致；它与冻结13文件包内的8747字节README不同。最终上传权重时须原样恢复该13文件包README，以匹配原manifest；远端权重文件、哈希与不可变revision仍待实际核验。
 
-本机下载已结束临时状态，但最终命名ZIP仅 **2,277,806,075 bytes**，预期为 **3,260,503,973 bytes**；整包SHA不符、缺少EOCD，ZipFile报`File is not a zip file`。用户确认Chrome显示完成且没有恢复按钮，该文件未解压、未上传。源端只读复核确认完整ZIP的原SHA匹配，13个entry均为ZIP_STORED；源包前2,277,806,075字节与本机片段SHA完全一致，精确缺尾 **982,697,898 bytes**。
+此前Chrome显示完成的本机ZIP仅2,277,806,075字节，整包SHA不符且缺EOCD；原不完整文件及后续截断片段均保留未改。按用户明确授权，仅补缺失字节并在CodexData另建完整副本：10个canonical parts均通过真实payload校验，固定偏移合并成功；新ZIP实际读回 **3,260,503,973 bytes**，SHA256为`b0df1c597222b78a4aa87cc6ee9a4d167ad12aa91706cff651bd403ca64618db`。恢复中两份100 MiB下载块也截断，保留正确前缀，仅补455187/504339字节尾部；其他缺失块经用户指定中转，各外包带完整许可、归属和模型卡，不含私人语料。
 
-用户已选择先完成现有下载，CLI路线未启动。用户已明确授权仅补齐缺尾、保留原文件，并在CodexData新建合并副本；补尾传输尚未开始，最终全包校验、解压及上传均未通过。没有完整本机模型包或HF权重上传成功回执；不公开实际文件路径或源端位置；工具中的尺寸与校验值只对应已授权公开的模型字节。
+完整ZIP的13个普通ZIP_STORED文件通过安全路径与CRC检查；流式复制至全新目录后，`prepare_hf_release --verify-release`实际返回`status=verified_public_release`、`files=13`，GPT SHA与冻结best100一致，`checkpoint_step=100`、`quality_gate_passed=false`、`uploaded=false`。本机完整包与待上传13文件目录现已实际准备并验证。下一步由用户在HF网页手选这13文件；此前自动chooser连续失败，已停止重试，CLI未启动。HF仍为上述469daf1元数据HEAD，仅README/`.gitattributes`、无权重，不能把本地验证写成远端上传成功。
 
-[恢复工具](../scripts/recover_public_download.py)仅负责本地固定偏移的分段与新副本合并，不负责网络或登录；它强制检查源包、已下前缀和最终整包的固定SHA，并预检磁盘空间。新增7项真实小文件测试覆盖完整往返、损坏/篡改与空间不足等拒绝路径，不表示真实大包已经修复。[该版本Kite处理器](https://github.com/kite-org/kite/blob/7eddcc69fbadf0772cd187b9b75cba7b83cab1f9/pkg/resources/pod_handler.go#L401-L443)未实现HTTP Range，补尾采用独立小包；当前没有证据确定原传输截断的原因。
+[恢复工具](../scripts/recover_public_download.py)仅负责本地固定偏移的分段与新副本合并，不负责网络或登录；它强制检查源包、已下前缀和最终整包的固定SHA，并预检磁盘空间。恢复工具7项、本地接收器9项小文件检查分别通过；它们与此次真实大包读回/解包验证分开记录，不是模型质量或新增GPU训练证据。[该版本Kite处理器](https://github.com/kite-org/kite/blob/7eddcc69fbadf0772cd187b9b75cba7b83cab1f9/pkg/resources/pod_handler.go#L401-L443)未实现HTTP Range，补尾采用独立小包；当前没有证据确定原传输截断的原因。 源端中转batch 7/7无错误，我方控制器已不活跃，ComfyUI健康检查HTTP200；恢复过程没有新增GPU工作。
 
 ## 13文件格式的真实集成
 
