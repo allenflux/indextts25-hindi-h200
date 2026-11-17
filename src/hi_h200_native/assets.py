@@ -25,6 +25,8 @@ W2V_REPO = "facebook/w2v-bert-2.0"
 W2V_REVISION = "da985ba0987f70aaeb84a80f2851cfac8c697a7b"
 CAMP_REPO = "funasr/campplus"
 CAMP_REVISION = "e4b6ede7ce16997aff4ae69fbca1f0175e2afede"
+BIGVGAN_REPO = "nvidia/bigvgan_v2_22khz_80band_256x"
+BIGVGAN_REVISION = "633ff708ed5b74903e86ff1298cf4a98e921c513"
 
 
 class AssetError(ValueError):
@@ -61,10 +63,21 @@ EXTRACT = (
     Asset(CAMP_REPO, CAMP_REVISION, "campplus_cn_common.bin", "hf_cache/campplus_cn_common.bin", 28036335, "sha256", "3388cf5fd3493c9ac9c69851d8e7a8badcfb4f3dc631020c4961371646d5ada8"),
     Asset(CAMP_REPO, CAMP_REVISION, "README.md", "hf_cache/campplus/README.md", 2020, "git_blob_sha1", "10b7ae7912f6c4eae3b67316ed59902963591a58"),
 )
+SYNTH = (
+    Asset(MODEL_REPO, MODEL_REVISION, "s2mel.pth", "s2mel.pth", 414908601, "sha256", "9b1b0003fc189c94cc349758d7ebc25f903b7eb2de4602879959cc64ce816456"),
+    Asset(MODEL_REPO, MODEL_REVISION, "feat1.pt", "feat1.pt", 57170, "sha256", "f219cb447d80216ba615666da2ff8d63ac544eee26657f3a7b278692bf7a67c4"),
+    Asset(MODEL_REPO, MODEL_REVISION, "feat2.pt", "feat2.pt", 374866, "sha256", "9c4292e96dee535aea9a6206e9a0c856dd578dde9212acdb16dd3ada4d12bf80"),
+    Asset(BIGVGAN_REPO, BIGVGAN_REVISION, "config.json", "hf_cache/bigvgan/config.json", 1405, "git_blob_sha1", "635bd8975629bd6d4b51c409986944a281cfe7be"),
+    Asset(BIGVGAN_REPO, BIGVGAN_REVISION, "bigvgan_generator.pt", "hf_cache/bigvgan/bigvgan_generator.pt", 449228171, "sha256", "e95ba25972d3de0628d99cd156e9315a9c018899bf739988959ebe3544080ced"),
+    Asset(BIGVGAN_REPO, BIGVGAN_REVISION, "LICENSE", "hf_cache/bigvgan/LICENSE", 1076, "git_blob_sha1", "45b7741b4516c22d7314c5f856b17f713bac91af"),
+    Asset(BIGVGAN_REPO, BIGVGAN_REVISION, "README.md", "hf_cache/bigvgan/README.md", 8038, "git_blob_sha1", "cb0adf5a6815c78cb7993b3b8083427d20e7357d"),
+)
+
 LICENSES = {
     MODEL_REPO: {"name": "bilibili Model Use License Agreement", "reference": f"https://huggingface.co/{MODEL_REPO}/blob/{MODEL_REVISION}/LICENSE"},
     W2V_REPO: {"name": "MIT (public model-card declaration)", "reference": f"https://huggingface.co/{W2V_REPO}/blob/{W2V_REVISION}/README.md"},
     CAMP_REPO: {"name": "Apache-2.0 (public model-card declaration)", "reference": f"https://huggingface.co/{CAMP_REPO}/blob/{CAMP_REVISION}/README.md"},
+    BIGVGAN_REPO: {"name": "MIT", "reference": f"https://huggingface.co/{BIGVGAN_REPO}/blob/{BIGVGAN_REVISION}/LICENSE"},
 }
 
 
@@ -84,9 +97,9 @@ def _field(value, name):
 
 
 def selected_assets(stage):
-    if stage not in ("train", "extract"):
-        raise AssetError("Stage must be train or extract")
-    assets = TRAIN if stage == "train" else TRAIN + EXTRACT
+    if stage not in ("train", "extract", "synth"):
+        raise AssetError("Stage must be train, extract or synth")
+    assets = TRAIN if stage == "train" else TRAIN + EXTRACT if stage == "extract" else TRAIN + EXTRACT + SYNTH
     names = set()
     for asset in assets:
         safe_relative(asset.filename)
@@ -288,7 +301,8 @@ def stage_assets(plan, destination, cache_dir, *, max_bytes, reserve_bytes, down
         if not isinstance(config, dict) or str(config.get("version")) != "2.5":
             raise AssetError("Downloaded config is not version 2.5")
         for repository, filename in ((W2V_REPO, "w2v-bert-2.0.manifest.json"),
-                                     (CAMP_REPO, "campplus.manifest.json")):
+                                     (CAMP_REPO, "campplus.manifest.json"),
+                                     (BIGVGAN_REPO, "bigvgan.manifest.json")):
             selected = [asset for asset in assets if asset.repository == repository]
             if not selected:
                 continue
@@ -329,7 +343,7 @@ def stage_assets(plan, destination, cache_dir, *, max_bytes, reserve_bytes, down
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--stage", choices=("train", "extract"), default="train")
+    parser.add_argument("--stage", choices=("train", "extract", "synth"), default="train")
     parser.add_argument("--destination", type=Path)
     parser.add_argument("--cache-dir", type=Path)
     parser.add_argument("--download", action="store_true")

@@ -93,6 +93,50 @@ class NativeAssetTests(unittest.TestCase):
         self.assertNotIn("s2mel.pth", [row["filename"] for row in full["files"]])
         self.assertIn("hf_cache/w2v-bert-2.0/model.safetensors", [row["relative_path"] for row in full["files"]])
 
+    def test_synth_is_exact_public_pinned_and_excludes_unused_models(self):
+        api, calls = metadata_api(assets.TRAIN + assets.EXTRACT + assets.SYNTH)
+        plan = assets.plan_assets("synth", api=api)
+        self.assertEqual(len(plan["files"]), 20)
+        self.assertEqual(plan["network_payload_bytes"], 7082513550)
+        self.assertEqual(len(calls), 4)
+        self.assertFalse(plan["downloaded"])
+        names = {row["relative_path"] for row in plan["files"]}
+        self.assertTrue({"s2mel.pth", "feat1.pt", "feat2.pt", "hf_cache/bigvgan/config.json",
+                         "hf_cache/bigvgan/bigvgan_generator.pt", "hf_cache/bigvgan/LICENSE",
+                         "hf_cache/bigvgan/README.md"}.issubset(names))
+        self.assertFalse(any("qwen" in name.lower() or "maskgct" in name.lower() for name in names))
+        big = [row for row in plan["files"] if row["repository"] == assets.BIGVGAN_REPO]
+        self.assertTrue(all(row["revision"] == "633ff708ed5b74903e86ff1298cf4a98e921c513" for row in big))
+        self.assertIn(assets.BIGVGAN_REPO, plan["licenses"])
+        self.assertFalse(self.cache.exists())
+
+    def test_synth_stage_preserves_separate_bigvgan_source_manifest(self):
+        payload = b"tiny synthetic vocoder, never loaded"
+        vocoder = assets.Asset(assets.BIGVGAN_REPO, assets.BIGVGAN_REVISION,
+                               "bigvgan_generator.pt", "hf_cache/bigvgan/bigvgan_generator.pt",
+                               len(payload), "sha256", hashlib.sha256(payload).hexdigest())
+        self.contents["bigvgan_generator.pt"] = payload
+        selected = self.selected + (vocoder,)
+        api, _ = metadata_api(selected)
+        def download(**kwargs):
+            self.assertIs(kwargs["token"], False)
+            self.assertEqual(kwargs["endpoint"], "https://huggingface.co")
+            path = Path(kwargs["cache_dir"]) / kwargs["repo_id"].replace("/", "--") / kwargs["filename"]
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(self.contents[kwargs["filename"]])
+            return str(path)
+        with patch.object(assets, "TRAIN", self.selected), patch.object(assets, "EXTRACT", ()), patch.object(assets, "SYNTH", (vocoder,)):
+            plan = assets.plan_assets("synth", api=api)
+            result = assets.stage_assets(plan, self.destination, self.cache, max_bytes=10000,
+                                         reserve_bytes=0, downloader=download)
+        self.assertEqual(result["stage"], "synth")
+        source = json.loads((self.destination / "bigvgan.manifest.json").read_text())
+        self.assertEqual(source["repository"], assets.BIGVGAN_REPO)
+        self.assertEqual(source["snapshot_revision"], assets.BIGVGAN_REVISION)
+        self.assertEqual(source["files"][vocoder.relative_path], vocoder.digest)
+        root_manifest = json.loads((self.destination / "model-manifest.json").read_text())
+        self.assertIn("bigvgan.manifest.json", root_manifest["files"])
+
     def test_gated_changed_revision_or_hash_fails(self):
         for changes in ({"gated": "auto"}, {"revision": "0" * 40}, {"corrupt": True}):
             api, _ = metadata_api(assets.TRAIN + assets.EXTRACT, **changes)

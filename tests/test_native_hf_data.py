@@ -28,13 +28,16 @@ TEXTS = ("नमस्ते मेरे मित्र।", "आज मौस
          "वह धीरे बोल रही है।", "हमारा गाँव सुंदर है।", "मेरा घर पास में है।", "तुम्हारा धन्यवाद मित्र।")
 
 
-def fake_api(*, account=hf.EXPECTED_ACCOUNT, revision=hf.REVISION, license_value="cc-by-4.0", bad_size=False):
+def fake_api(*, account=hf.EXPECTED_ACCOUNT, revision=hf.REVISION, license_value="cc-by-4.0", bad_size=False,
+             hindi_bytes=47225888374):
     calls = []
     names = [name for name, _ in hf.SHARDS]
     selected_sizes = [size for _, size in hf.SHARDS]
-    remaining = hf.HINDI_BYTES - sum(selected_sizes)
+    # Independent diagnostic value: never derive the fixture total from the code under test.
+    remaining = hindi_bytes - sum(selected_sizes)
     siblings = [SimpleNamespace(rfilename=name, size=size + (1 if bad_size and index == 0 else 0),
-                                lfs=SimpleNamespace(size=size + (1 if bad_size and index == 0 else 0), sha256="a" * 64))
+                                lfs=SimpleNamespace(size=size + (1 if bad_size and index == 0 else 0),
+                                                    sha256="a" * 64))
                 for index, (name, size) in enumerate(hf.SHARDS)]
     for index in range(hf.HINDI_FILES - len(names)):
         size = remaining if index == 0 else 0
@@ -74,6 +77,15 @@ class HfMetadataTests(unittest.TestCase):
         self.assertFalse(report["official_test_used"])
         for call in calls:
             self.assertIs(call[-1]["token"], None)
+    def test_authoritative_hindi_inventory_rejects_old_transcription(self):
+        self.assertEqual(hf.HINDI_BYTES, 47225888374)
+        api, _ = fake_api(hindi_bytes=47225888374)
+        report, _, _ = hf.metadata_plan(api)
+        self.assertEqual(report["hindi_subset_bytes"], 47225888374)
+        old_wrong, _ = fake_api(hindi_bytes=47222588374)
+        with self.assertRaisesRegex(hf.ImportBlocked, "inventory differs"):
+            hf.metadata_plan(old_wrong)
+
     def test_wrong_account_revision_license_or_size_block(self):
         for kwargs in ({"account": "other"}, {"revision": "b" * 40}, {"license_value": "other"}, {"bad_size": True}):
             api, _ = fake_api(**kwargs)
