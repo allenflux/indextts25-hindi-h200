@@ -4,7 +4,9 @@
 
 **真实Hindi训练、导出和stock生成已实现，正式质量gate仍未通过。** 最新64条/16人pilot按固定验证loss选出的best100已完成标准adapter转换、完整GPT合并、H200 FP32 stock parity和两句真实WAV。相同ASR口径下，新4词句CER从0.7222降至0.2222，未参与训练的VAL句从0.7449降至0.3469；这是小样本改善，ASR对真人参考也有明显误差，不能据此认证整体Hindi质量。人工Hindi试听、旧语言回归和数据/模型发布权利审核尚未完成，保留实验标识；原模型未替换，HF未发布。
 
-完整范围见 [VALIDATION.md](VALIDATION.md)：本机200/200、H200宿主CPU189/189测试通过。CPU检查与随机模型gate用于机制验证，实际微调在GPU上运行；不能据loss下降或WAV存在宣称音质达标。官方tokenizer的hi槽位17和`<|hi|>`不代表官方训练过Hindi。
+完整范围见 [VALIDATION.md](VALIDATION.md)：本轮工具源码`d3bb1f5`在Mac完成222/222 CPU检查；H200宿主既有189/189 CPU记录另列。CPU检查与随机模型gate用于机制验证，实际微调在GPU上运行；不能据loss下降或WAV存在宣称音质达标。官方tokenizer的hi槽位17和`<|hi|>`不代表官方训练过Hindi。
+
+最新冻结test与旧语言Hindi-prompt stress结果见 [有限验收记录](docs/FINITE_ACCEPTANCE.md)：两条Hindi test的严格CER仍为50%，中日各一例出现识别差异；人工听评与完整旧语言回归未完成，质量发布gate未通过。
 
 ## 原生训练路线
 
@@ -55,6 +57,6 @@ raw UTF-8 JSONL每行必填：
 
 最新pilot离线复用两份合法已有Parquet，64条/16人、完整utterance max20秒；保留旧split的`prepared-frozen`，train48/val8/test8特征全部实际提取。从原始base独立完成BF16第20步到新进程第500步恢复训练，恢复段wall吞吐约1.3167 updates/s（含加载、验证和checkpoint），本进程Torch CUDA allocated峰值约5.77 GiB。8例验证loss在第100步最低后持续上升，已停止扩大该run，不选last500；best100的转换、7文件完整合并、parity、两句stock WAV、配对审计与六cases GPU ASR均实际完成。checkpoint按5个固定验证点的loss选择，未用ASR挑选；VAL与train按speaker隔离，但参与选模，最终test尚未质量验收。
 
-v1、v2和pilot均从原始base独立开始，不能合计为一个800步模型。早期v1新句未改善、v2只在已知TRAIN句改善及noKV/conditioning诊断保留于验证记录；默认cache保持True。review pack已在Pod本地创建并在Kite Files确认：`WORK/outputs/review/pilot-best100-review.zip`（1,028,130 bytes）及文件夹`WORK/outputs/review/pilot-best100/`，压缩包内10个文件，包含5 WAV、2 texts、metrics、中文README和MANIFEST；未下载到Mac、未公开。
+v1、v2和pilot均从原始base独立开始，不能合计为一个800步模型。早期v1新句未改善、v2只在已知TRAIN句改善及noKV/conditioning诊断保留于验证记录；默认cache保持True。历史原始review ZIP保留未改。私下听评应使用已补入完整双语协议和数据归属说明的`WORK/outputs/review/pilot-best100-licensed-review.zip`（1,041,300 bytes，16条目，原5 WAV哈希不变）；全部有限验收另存为`WORK/outputs/review/frozen-best100-finite-private.zip`（4,707,736 bytes，76条目，19 WAV，含全部14生成）。两包均未下载到Mac、未上传Library、未公开，交付和许可边界见 [DISTRIBUTION](docs/DISTRIBUTION.md)。
 
-未来HF owner为`fluxa0223`，目前未创建模型仓库或上传权重；[导出说明](docs/EXPORT.md) 保留真实评测与权利审核门槛。本次所有GPU任务均已结束，`RUN_STATE.json`记录selected100、active training=false、quality=false及来源版本；两台已用共享pod的ComfyUI均未被我们停止、重启或修改；HTTP200仅在训练所在Pod的localhost直接实测，原Pod仅由Kite UI确认Ready1/1、restarts0。输出保留在独立持久目录；访问异常的未定原因与最终资源快照见验证记录。
+未来HF owner为`fluxa0223`，目前未创建模型仓库或上传权重；[导出说明](docs/EXPORT.md) 保留真实评测与权利审核门槛。本次所有GPU任务均已结束，`RUN_STATE.json`记录selected100、active training=false、quality_gate_passed=false及来源版本；两台已用共享pod的ComfyUI均未被我们停止、重启或修改；HTTP200仅在训练所在Pod的localhost直接实测，原Pod仅由Kite UI确认Ready1/1、restarts0。输出保留在独立持久目录；访问异常的未定原因与最终资源快照见验证记录。

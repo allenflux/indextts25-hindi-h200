@@ -1,5 +1,6 @@
 # Hindi 与旧语言评测 / 发布门槛
 
+本页的训练、VAL与早期ASR记录属于此前阶段；后续冻结test及五种旧语言Hindi-prompt stress的完整结果见 [FINITE_ACCEPTANCE](FINITE_ACCEPTANCE.md)。质量发布gate仍未通过。
 最新64条/16人pilot的best100已完成真实BF16训练后的标准adapter转换、7文件完整GPT合并、H200单feature FP32 parity、两句stock WAV、配对审计与六cases GPU ASR，流水线退出码0。**Hindi训练、导出和生成已实现，小样本ASR改善；正式Hindi质量与发布gate仍未通过。** 人工Hindi试听、旧语言回归和gated数据/模型发布权利审核尚未完成，保留实验标识，原模型未替换，HF未发布。本机CPU检查200/200通过、无跳过（32.050秒），机制检查不替代语音质量验收。
 
 ## 最新candidate实测
@@ -40,7 +41,7 @@ v1、v2、pilot均从原始base独立开始，不能合计为一个800步模型�
 | 多speaker held-out质量 | 仅少量ASR例 | 更多独立speaker、多句与ASR误差分析 |
 | 数据/模型发布权利与模型卡 | 未完成 | gated使用/再发布条件、许可与真实限制审核 |
 
-本次所有GPU任务均已结束，持久运行状态为selected100、active training=false、quality=false，原模型未替换。pilot val/test各只有两位speaker，正式泛化结论仍需更充分的独立样本。保留固定测试集、speaker隔离、归一规则、prompt/text/seed、ASR/声纹revision与复现哈希。loss下降、WAV存在及stock parity都不自动通过质量gate；尚未创建HF模型仓库或上传权重。
+本次所有GPU任务均已结束，持久运行状态为selected100、active training=false、quality_gate_passed=false，原模型未替换。pilot val/test各只有两位speaker，正式泛化结论仍需更充分的独立样本。保留固定测试集、speaker隔离、归一规则、prompt/text/seed、ASR/声纹revision与复现哈希。loss下降、WAV存在及stock parity都不自动通过质量gate；尚未创建HF模型仓库或上传权重。
 
 ## legacy外部兼容路线
 

@@ -169,8 +169,23 @@ pilot从原始base独立开始，完整预训练2.5、BF16、LoRA rank8 / alpha1
 
 ## 共享资源、依赖与权限边界
 
-本次全部GPU job已结束。持久`RUN_STATE.json`已保存源代码commit `222daad01275fbb998df1ac224cbdcdc46a7ad8a`、selected step100、`active_training=false`与`quality=false`，并明确200项CPU检查来自Mac环境。最终仅在训练所在Pod的localhost直接健康检查返回 **HTTP200**，H200整设备快照为 **2753 MiB已用、GPU utilization 0%**；这是结束时快照，不是本训练进程峰值或未来余量保证。
+本次全部GPU job已结束。持久`RUN_STATE.json`已保存源代码commit `222daad01275fbb998df1ac224cbdcdc46a7ad8a`、selected step100、`active_training=false`与`quality_gate_passed=false`，并明确200项CPU检查来自Mac环境。最终仅在训练所在Pod的localhost直接健康检查返回 **HTTP200**，H200整设备快照为 **2753 MiB已用、GPU utilization 0%**；这是结束时快照，不是本训练进程峰值或未来余量保证。
 
 本机文件位于CodexData，Pod输出在独立持久目录；两台已用共享pod的ComfyUI均未被我们停止、重启或修改，全局代码、模型及Python包亦未被修改。此前访问异常的原Pod仅由Kite UI确认已恢复 **Ready1/1、restarts0**；此前退出码137的旧terminal已失效，异常原因仍未证实，不能直接归因OOM/重启或排除间接资源竞争。健康响应不证明过去或未来绝无影响。
 
 核心运行依赖为空；训练为可选extra。历史CPU lock不是Linux/CUDA锁或安全更新基线；依赖告警、可信checkpoint与认证隔离见 [SECURITY.md](SECURITY.md)。不把`weights_only=True`当sandbox，不接收未知checkpoint，也不自动升级现有服务库。原生路线不依赖社区后端；外部兼容路线保留许可fail-fast。完整合成操作见 [SYNTHESIS.md](docs/SYNTHESIS.md)，发布门槛见 [EVALUATION.md](docs/EVALUATION.md)。
+
+
+## 后续有限test与旧语言prompt stress（源码d3bb1f5）
+
+本节追加后续实测，不改写上文source222daad及200项CPU检查的历史范围。工具源码`d3bb1f575c68e227cd1e442fc6586339a6459d83`已公开推送并核对远端SHA；Mac完整CPU suite **222/222通过、0跳过、34.351秒**，新增批量生成与有限ASR实现已独立审查。
+
+冻结best100，Hindi test两speaker各一例、五旧语言各一例，使用Hindi prompt；各case原模型/候选仅执行一次，不训练、不重选case或checkpoint。原模型7/7与best100 7/7真实stock生成、14条均frontend verified；7对text/prompt SHA、seed、settings、stock token IDs/language slot一致，14 WAV哈希审计通过。两个variant及ASR三个子进程退出码均0、无停止原因；时长分别 **84.81 / 79.06 / 20.21秒**，16/16 GPU ASR（14生成+2真人reference）无覆盖缺口。全部样本保留，无retry/reselection。
+
+本轮为canonical authored/test text的 **strict** 指标，包含空格，与上文去标点分数不能直接混算。Hindi两例的微平均严格CER：真人reference **31/166=0.186747**，原模型 **396/166=2.385542**，best100 **83/166=0.500000**；严格WER分别为 **14/32=0.4375、146/32=4.5625、27/32=0.84375**。候选有方向性改善，但CER仍50%，且真人reference本身ASR误差较高，不能据此判定Hindi质量通过。
+
+旧语言每种一例、均为Hindi-prompt stress，严格CER原模型→best100为：zh **1/17→3/17**，en **1/46→1/46**，ja **0/18→2/18**，es **1/60→1/60**，ar **0/41→0/41**。中文、日文单例指标升高；缺母语试听、native-prompt与本语言校准，不能保证无退化或称正式旧语言回归。完整匿名逐例统计与限制见 [FINITE_ACCEPTANCE](docs/FINITE_ACCEPTANCE.md)。
+
+整设备峰值原模型 **9350 MiB/76样本**、候选 **9486 MiB/71样本**，监控的total-used最小值 **134421/134285 MiB**，未扣NVML reserved，不是实际`memory.free`，包含ComfyUI，不能归为本进程。结束时nvidia-smi实际`memory.free`为 **140404 MiB**，设备 **2753 MiB、0%**，本项目Python进程NONE；训练所在Pod localhost ComfyUI **HTTP200**。原模型与best100 GPT哈希最终复核未变，运行状态`active_training=false`、`quality_gate_passed=false`。人工Hindi/母语试听、native回归及发布权利gate仍未完成；未生产替换、未HF发布。
+
+另已离线构建并检查wheel：**121451 bytes**、21个Python源码文件与源码逐一相同、两个CLI `--help`通过，SHA256为`dc900c04b7942c53d7f33e6fbaa06d0dc9d167da4ccf760aa9244626f8bbc622`。使用已有setuptools **84.1.0**直接调用backend；原native环境没有pip/build CLI，没有为打包修改全局依赖。GitHub推送反馈 **52项已知依赖告警（23 high / 23 moderate / 6 low）**，这里只记录平台报告，未逐条独立审计，也未升级生产依赖。
