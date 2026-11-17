@@ -4,13 +4,13 @@
 
 **真实Hindi训练、导出和stock生成已实现，正式质量gate仍未通过。** 最新64条/16人pilot按固定验证loss选出的best100已完成标准adapter转换、完整GPT合并、H200 FP32 stock parity和两句真实WAV。相同ASR口径下，新4词句CER从0.7222降至0.2222，未参与训练的VAL句从0.7449降至0.3469；这是小样本改善，ASR对真人参考也有明显误差，不能据此认证整体Hindi质量。人工Hindi试听与完整旧语言回归尚未完成，保留实验标识；本次公开包的许可复核和真实加载结果见[发布记录](docs/PUBLIC_RELEASE.md)。原模型未替换；已合并的完整GPT实验权重已[发布至HF](https://huggingface.co/fluxa0223/IndexTTS-2.5-Hindi-best100-experimental/tree/117c7922e4dcedc3f9885f3f6efa5be8f54c7919)，它不是整套声学模型。
 
-完整范围见 [VALIDATION.md](VALIDATION.md)：源码`7c950e3`的CPU测试为278/278通过、0跳过、34.841秒；H200宿主既有189/189 CPU记录另列。CPU检查与随机模型gate用于机制验证，实际微调在GPU上运行；不能据loss下降或WAV存在宣称音质达标。官方tokenizer的hi槽位17和`<|hi|>`不代表官方训练过Hindi。
+完整范围见 [VALIDATION.md](VALIDATION.md)。初始化顺序修复的完整 CPU suite 为316/316通过、0跳过、38.586秒（af3c57be文件版本）；最终loader清理增量后另有30/30相关CPU检查和独立安全审查通过。旧源码`7c950e3`的278项与H200宿主189项记录保留各自版本范围。CPU检查与随机模型gate用于机制验证，实际微调在GPU上运行；不能据loss下降或WAV存在宣称音质达标。官方tokenizer的hi槽位17和`<|hi|>`不代表官方训练过Hindi。
 
 最新冻结test与旧语言Hindi-prompt stress结果见 [有限验收记录](docs/FINITE_ACCEPTANCE.md)：两条Hindi test的严格CER仍为50%，中日各一例出现识别差异；人工听评与完整旧语言回归未完成，质量发布gate未通过。
 
 你下载的两份试听ZIP都没有模型权重。真实GPT候选的独立加载与原始ComfyUI节点限制见 [INSTALL_EXPERIMENTAL](docs/INSTALL_EXPERIMENTAL.md)；公开13文件包使用新脚本入口，不能套用私有原生bundle步骤。
 
-真实T8四节点的隔离兼容副本已在RTX 5090分别完成candidate HI与base ZH各一份WAV，详见 [5090切换与验证范围](docs/RTX5090_SWITCHING.md)。这是隔离兼容验证，不是完整八节点ComfyUI queue、同进程模型回切或质量验收，也未部署到生产服务。未修改的T8插件`1ff425ece89ef9824f58f0e4dbfb057991814e88`仍有HI白名单与原始模型清单双重阻塞；旧模型保持不动。
+**RTX 5090 的隔离完整工作流与同进程原版→Hindi→原版功能验收已通过。** 保留原8节点类型/ID及5条连线，实际依赖的6节点每轮真实执行；auto实际选择CUDA/BF16，原模型缓存保留并复用，首尾原版WAV及PCM完整哈希相同。见[5090切换手册](docs/RTX5090_SWITCHING.md)和[实际回执](docs/acceptance/rtx5090-switch-cycle-20261117.json)。这是固定短样本、隔离兼容路径的接口验证；生产插件尚未部署更新，不保证所有文本/旧语言质量无退化。未修改的T8基线仍拒绝HI及候选原始清单，先需同一插件的一次兼容更新；无需新增LoRA节点，旧模型保持不动。此前两份四节点[生成试听与完整许可](docs/audio/rtx5090-core/README.md)已按用户授权公开，它们与本次三轮回执分开标识。
 
 ## 模型原理与微调依据
 
@@ -26,7 +26,7 @@
 4. 用冻结的官方编码器生成原生特征并逐条校验，CPU检查与随机tiny BF16 gate用于机制验证，完整编码器和实际微调仍按共享GPU/宿主内存实时余量分阶段执行。
 5. 先小样本过拟合，再真实STOP/恢复、100次optimizer更新smoke，最后做 [Hindi/旧语言和发布评测](docs/EVALUATION.md)。参数只是实验起点，不承诺GPU小时或音质。
 
-原生实现当前只支持无padding的batch1加梯度累积；冻结声学模块/GPT基础参数，训练attention Conv1D LoRA、Hindi语言行、受限文字行和两个输出head。保存完整可训练状态和两个head，原始权重只读；最新best100完整合并模型已由fresh stock严格加载，并完成H200单feature FP32 logits对照与真实WAV生成。不同语言adapter各自版本管理；不宣称社区adapter、vLLM、ComfyUI或DeepSpeed兼容。
+原生实现当前只支持无padding的batch1加梯度累积；冻结声学模块/GPT基础参数，训练attention Conv1D LoRA、Hindi语言行、受限文字行和两个输出head。保存完整可训练状态和两个head，原始权重只读；最新best100完整合并模型已由fresh stock严格加载，并完成H200单feature FP32 logits对照与真实WAV生成。不同语言adapter各自版本管理；不宣称社区adapter、vLLM或DeepSpeed兼容；ComfyUI仅验证了上述固定基线的隔离T8兼容路径。
 
 ## CPU 数据工具快速检查
 

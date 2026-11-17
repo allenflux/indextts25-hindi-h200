@@ -1,0 +1,115 @@
+{
+  "status": "three_run_same_process_cycle_completed_quality_unverified",
+  "quality_verified": false,
+  "speech_completeness_verified": false,
+  "original_node_ids_and_types_preserved": true,
+  "original_links_preserved": true,
+  "same_server_pid_all_runs": true,
+  "original_cache_object_observed_in_middle": true,
+  "original_cache_object_reused": true,
+  "base_completed_runs_observed": [
+    1,
+    2
+  ],
+  "base_repeat_pcm_identical": true,
+  "owned_process_cleanup_verified": true,
+  "owned_process_returncode": -15,
+  "elapsed_seconds": 81.03816745895892,
+  "framework_runtime_equivalence_verified": false,
+  "graph_cache": "none; T8 model/reference caches remain active",
+  "source_revision": "792305841240072e5a9f2616eb9e387126cae5a2",
+  "target": "RTX5090 isolated validation instance",
+  "runs": [
+    {
+      "case": "base_before",
+      "variant": "base",
+      "language": "ZH",
+      "status": "completed_quality_unverified",
+      "file_bytes": 140878,
+      "file_sha256": "860898e8a837eb4dbb1b2be2781ed8bfa17974d40980fe513965bbbb4a500f6c",
+      "pcm_sha256": "4ec3ca1595119da8a680cc76a1b177bd5018cf50637f97cc8586df62697c7b7d",
+      "frames": 70400,
+      "sample_rate": 22050,
+      "channels": 1,
+      "sample_width": 2,
+      "seconds": 3.1927437641723357,
+      "actual_nodes": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "8"
+      ],
+      "device": "cuda:0",
+      "bf16": true,
+      "completed_runs": 1,
+      "sampled_gpu_used_mib": 6711.0
+    },
+    {
+      "case": "hindi",
+      "variant": "hindi",
+      "language": "HI",
+      "status": "completed_quality_unverified",
+      "file_bytes": 154702,
+      "file_sha256": "e0174b4e63ec533bd4281f9b7125551f6e8d254223738e1c228f63c5d6e198fe",
+      "pcm_sha256": "277e11de06baf1f7f8216517fdc920969fc7d68dbe19a49a640f1e4b45dfddd4",
+      "frames": 77312,
+      "sample_rate": 22050,
+      "channels": 1,
+      "sample_width": 2,
+      "seconds": 3.5062131519274375,
+      "actual_nodes": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "8"
+      ],
+      "device": "cuda:0",
+      "bf16": true,
+      "completed_runs": 1,
+      "sampled_gpu_used_mib": 11799.0
+    },
+    {
+      "case": "base_after",
+      "variant": "base",
+      "language": "ZH",
+      "status": "completed_quality_unverified",
+      "file_bytes": 140878,
+      "file_sha256": "860898e8a837eb4dbb1b2be2781ed8bfa17974d40980fe513965bbbb4a500f6c",
+      "pcm_sha256": "4ec3ca1595119da8a680cc76a1b177bd5018cf50637f97cc8586df62697c7b7d",
+      "frames": 70400,
+      "sample_rate": 22050,
+      "channels": 1,
+      "sample_width": 2,
+      "seconds": 3.1927437641723357,
+      "actual_nodes": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "8"
+      ],
+      "device": "cuda:0",
+      "bf16": true,
+      "completed_runs": 2,
+      "sampled_gpu_used_mib": 11799.0
+    }
+  ],
+  "independent_file_and_pcm_readback_verified": true,
+  "base_before_after_file_identical": true,
+  "original_service_after": {
+    "http": 200,
+    "running": 0,
+    "pending": 0
+  },
+  "gpu_after": "NVIDIA GeForce RTX 5090, 32607 MiB, 654 MiB, 31457 MiB, 0 %",
+  "owned_active_processes": [],
+  "verified_source_canonical_sha256": "ad6e7af9de23763d9ea903444fe0c714b68abfef4de3546400a8542bcb6ae0ad",
+  "public_summary_redactions": [
+    "Internal instance name generalized; all original measurement and status fields retained."
+  ]
+}

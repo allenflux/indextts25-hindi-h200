@@ -249,7 +249,7 @@ IndexTTS2(
 
 ## 原版节点的历史核查与后续RTX5090实测
 
-早期只读核查的原版节点为`custom_nodes/comfyui-indextts25-t8`（相对ComfyUI根目录），仓库为[`T8mars/comfyui-indextts25-t8`](https://github.com/T8mars/comfyui-indextts25-t8/tree/1ff425ece89ef9824f58f0e4dbfb057991814e88)，固定HEAD `1ff425ece89ef9824f58f0e4dbfb057991814e88`，该阶段未改节点。**未经适配的这个固定版本存在HI入口和原始权重清单双阻塞，不能靠直接覆盖GPT解决。** 后续RTX5090已取得四节点Hindi/base各一条的实际成功记录；保持workflow结构、允许调整language参数的具体路线和限制见[RTX5090切换实测](RTX5090_SWITCHING.md)，不据此声称完整8节点queue或同进程回切通过。
+早期只读核查的原版节点为`custom_nodes/comfyui-indextts25-t8`（相对ComfyUI根目录），仓库为[`T8mars/comfyui-indextts25-t8`](https://github.com/T8mars/comfyui-indextts25-t8/tree/1ff425ece89ef9824f58f0e4dbfb057991814e88)，固定HEAD `1ff425ece89ef9824f58f0e4dbfb057991814e88`，该阶段未改节点。**未经适配的这个固定版本存在HI入口和原始权重清单双阻塞，不能靠直接覆盖GPT解决。** 后续先取得四节点Hindi/base各一条的实际成功记录，之后已在RTX5090的6-5隔离服务完成原版→Hindi→原版三轮真实queue、最终WAV与同进程缓存复用验证；原8节点结构与5条连接保留。保持workflow结构、仅选择模型目录与language的路线、已过接口与未过质量边界见[RTX5090切换实测](RTX5090_SWITCHING.md)。未部署生产插件，也不据单个原版短句回切哈希相同推断所有文本或语言都无损。
 
 1. **该原版标准生成入口不支持 HI。** 生成节点的语言选项及运行时白名单均只有 `ZH/EN/JA/ES/AR`；手传 `HI` 也会在取得模型前被拒绝。分段器的自动 token 上限也只覆盖这五种语言。其他 ASR/audio.cpp 节点出现的 `AUTO` 不是此标准生成路径的 Hindi 自动识别支持。[节点定义](https://github.com/T8mars/comfyui-indextts25-t8/blob/1ff425ece89ef9824f58f0e4dbfb057991814e88/nodes_v3.py#L2955)、[运行时白名单](https://github.com/T8mars/comfyui-indextts25-t8/blob/1ff425ece89ef9824f58f0e4dbfb057991814e88/runtime/inference_adapter.py#L100)、[分段器](https://github.com/T8mars/comfyui-indextts25-t8/blob/1ff425ece89ef9824f58f0e4dbfb057991814e88/runtime/text_planner.py#L19)。
 
