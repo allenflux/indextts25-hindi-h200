@@ -1,6 +1,6 @@
 # RTX 5090：Hindi 模型切换的实测与待验收项
 
-记录日期：2026-11-17。**四个核心 T8 节点的真实 GPU 推理已通过；完整工作流、同一进程回切和质量无损尚未验收。** 集群正在迁移，已按操作者指示暂停集群侧操作；下列数字来自迁移前保存的真实回执，不代表当前服务健康快照。
+记录日期：2026-11-17。**四个核心 T8 节点的真实 GPU 推理已通过；完整工作流、同一进程回切和质量无损尚未验收。** 迁移后终端已恢复；下列四节点数字来自此前保存的真实回执。后续完整图控制器已完成CPU准备，但首次真实执行请求被共享GPU资源门槛拦住，尚未加载模型或运行整图。
 
 ## 产物到底是什么
 
@@ -118,3 +118,15 @@ python scripts/probe_t8_nodes.py \
 ### 参考音频哈希记录更正
 
 后续整图metadata预检因参考SHA不匹配而正确停止，尚未启动GPU。经原始PCM16转换记录、迁移前已成功四节点result.json和当前文件全SHA三向核对，正确值为`fd23ddac68f2db3710481c7cbfc1a50a117d9c38bc5c3ee51c33444f0a9b019a`，与既有音频一致。前版文字摘要/命令中的SHA有转录错误；本次更正固定值，未更换参考音频、模型或放宽校验。失败回执保留。
+
+## 后续完整图控制器（仍待真实三轮通过）
+
+[`stage_comfy_validation.py`](../scripts/stage_comfy_validation.py)已在真实持久models工作区完成CPU inspect/stage：固定ComfyUI完整Git树与原有精确三行ops修改受审计，使用独立代码、input/output/temp/user/SQLite及显式插件引用。源码引用不是操作系统强制只读，不宣称容器隔离。
+
+[`run_comfy_validation.py`](../scripts/run_comfy_validation.py)与[`comfy_validation_server.py`](../scripts/comfy_validation_server.py)保留原8节点、5连接，实际依赖闭包为1/2/3/4/5/8；使用自建loopback新端口、关闭整图缓存，计划base ZH→Hindi HI→base ZH各一次。原loader的auto设备/精度、persistent_reference_cache=true、release_after_run=false均保留；实际CUDA/BF16、模型路径/身份、6节点执行事件、最终AudioEncrypt WAV与同源view字节必须分别验证。公开零占位仅用于encrypt=false，用户原始key和私人元数据不进入图或日志。
+
+完整CPU suite在`38b417d28338ba965f514b358a9d204d20ab6fdf`运行 **311/311通过、0跳过、36.874秒**。参考SHA两处字面量更正后，25项相关CPU合同/负向/状态机回归通过，独立增量审查PASS；更正源码为`5cd341d631c00fdb6494ef50845a75ff5f67513e`。这些CPU测试不是实际ComfyUI服务或GPU推理。
+
+更正后的真实CLI metadata已返回`metadata_verified_no_server_started`，三轮状态都是not_executed。首次执行请求在resource_admission退出，当时GPU已用22946MiB、可用9165MiB、利用率100%；控制器未创建服务或加载模型，自身已退出，错误回执保留。未清理生产模型缓存，未降低或取消保护以强行运行。
+
+已观察到不同Pod共享models工作区，但原output项目目录并非处处可见；跨Pod复用前须重新核对真实依赖、源码和资产，不能按同一字符串路径假定文件相同。后续实际完整图结果与资源参数另行更新；本页仍不把控制器实现完成当作功能验收完成。

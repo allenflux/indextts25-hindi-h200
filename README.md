@@ -12,6 +12,10 @@
 
 真实T8四节点的隔离兼容副本已在RTX 5090分别完成candidate HI与base ZH各一份WAV，详见 [5090切换与验证范围](docs/RTX5090_SWITCHING.md)。这是隔离兼容验证，不是完整八节点ComfyUI queue、同进程模型回切或质量验收，也未部署到生产服务。未修改的T8插件`1ff425ece89ef9824f58f0e4dbfb057991814e88`仍有HI白名单与原始模型清单双重阻塞；旧模型保持不动。
 
+## 模型原理与微调依据
+
+[原理与方法说明](docs/MODEL_RATIONALE.md)按固定源码解释文字到语义codes、CFM/DiT和声码器的实际接口、GPT LoRA与双head的更新范围、teacher-forcing损失和完整GPT合并。设计假设、论文与实现差异及质量证据分开列明。两张[推理结构图](docs/diagrams/indextts25-inference.html)和[训练/合并图](docs/diagrams/hindi-lora-training.html)为自含HTML，使用diagram-design制作；来源和压缩范围见[图示账本](docs/diagrams/SOURCES_AND_FIDELITY.md)。
+
 ## 原生训练路线
 
 从 [原生指南](docs/NATIVE.md) 开始，并先阅读 [安全与依赖范围](SECURITY.md)；完整原模型/合并模型的离线波形验收入口见 [合成指南](docs/SYNTHESIS.md)，验证点转adapter流程见 [Checkpoint选择](docs/CHECKPOINT_SELECTION.md)。配置示例为`configs/native-dataset.example.json`、`native-train.example.json`和`native-h200.example.json`。

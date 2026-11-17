@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "skill": "diagram-design",
+  "skill_version": "2.6.164",
+  "export_helper": "export_png.py",
+  "export_helper_sha256": "430ddcc2d39441808bd4217fbdeb944dbb6de0be281782705a81747986d7d348",
+  "helper_unmodified": true,
+  "font_source": "system",
+  "playwright": "1.65.2",
+  "chromium_headless_shell": {
+    "version": "159.0.8154.6",
+    "revision": "1255"
+  },
+  "python": "3.11.15",
+  "source_html_frozen_unchanged": true,
+  "outputs": [
+    {
+      "html": "indextts25-inference.html",
+      "html_sha256": "92f5fdf9850e9a19bb8870ef78fac1e725f9fd5c16a76d00a36ad79848e6d25a",
+      "png": "indextts25-inference.png",
+      "png_sha256": "cce92b9b0fd9d5f3581db226919d7a326821de5ae5d62fbf7a673a58964b6e78",
+      "png_bytes": 195232,
+      "dimensions": [
+        2560,
+        1440
+      ],
+      "scale": 2
+    },
+    {
+      "html": "hindi-lora-training.html",
+      "html_sha256": "8966d844703104ca2f62228fa2b7e4de7ef4dafc993fcebbb3410d40f5e2911a",
+      "png": "hindi-lora-training.png",
+      "png_sha256": "d5ee07eac9bacf7f2bcbfbd24385c9b4e3fe73aa1ce28d460125058534adf8ee",
+      "png_bytes": 222241,
+      "dimensions": [
+        2560,
+        1440
+      ],
+      "scale": 2
+    }
+  ],
+  "qa": {
+    "offline_self_check": "PASS",
+    "geometry": "PASS, 2 files, 0 findings",
+    "rendered_text_outside_viewbox": 0,
+    "rendered_node_text_overflow": 0,
+    "observed_http_requests": 0,
+    "mobile_local_scroller_390px": "PASS",
+    "native_view_image": "PASS, both PNGs inspected",
+    "audio_quality_claim": false
+  }
+}
