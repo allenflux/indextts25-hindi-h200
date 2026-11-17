@@ -1,0 +1,17 @@
+{
+  "files": [
+    {
+      "file": "hindi-5090-core.wav",
+      "bytes": 154668,
+      "sha256": "4c0e9a404ef63f0a1ddc629bb6d6c20e6370b4f5c00eb5c50bc614cb77747dcb"
+    },
+    {
+      "file": "base-zh-5090-core.wav",
+      "bytes": 140844,
+      "sha256": "76e7a6850db5d5df80f390871cb3a475a0f6e3231d683fb113ec174d41ef0b0c"
+    }
+  ],
+  "quality_verified": false,
+  "whole_workflow_executed": false,
+  "same_process_switch_tested": false
+}
