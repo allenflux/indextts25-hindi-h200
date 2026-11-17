@@ -1,6 +1,6 @@
 # best100 有限验收记录
 
-冻结候选的本轮有限验收已实际完成：原模型 **7/7**、best100 **7/7** 真实stock生成，**16/16** GPU ASR完成（14条生成及2条Hindi test真人reference），三个子进程均退出0、无停止原因、无覆盖缺口。**Hindi诊断有方向性改善，但best100严格CER仍为50%；正式质量gate未通过。** 全部样本保留，没有retry、重选case或重新选checkpoint；未生产替换、未HF发布，人工试听未完成。
+冻结候选的本轮有限验收已实际完成：原模型 **7/7**、best100 **7/7** 真实stock生成，**16/16** GPU ASR完成（14条生成及2条Hindi test真人reference），三个子进程均退出0、无停止原因、无覆盖缺口。**Hindi诊断有方向性改善，但best100严格CER仍为50%；正式质量gate未通过。** 全部样本保留，没有retry、重选case或重新选checkpoint；该轮未生产替换、未HF发布，人工试听未完成；后续HF发布见[发布记录](PUBLIC_RELEASE.md)。
 
 工具源码固定于 `d3bb1f575c68e227cd1e442fc6586339a6459d83`，公开远端SHA已核对。Mac完整CPU suite为 **222/222通过、0跳过、34.351秒**；批量生成与有限ASR已独立审查。best100此前按固定验证loss选定，本轮test与ASR不用于选模。历史训练、合并和VAL证据见 [VALIDATION](../VALIDATION.md) 与 [EVALUATION](EVALUATION.md)。
 
@@ -45,4 +45,4 @@ ASR主指标以冻结authored/test canonical text为参考：NFC、空白归一�
 
 整设备观测峰值为原模型阶段 **9350 MiB（76样本）**、best100阶段 **9486 MiB（71样本）**，监控的total-used最小值分别 **134421 / 134285 MiB**，未扣NVML reserved，不是实际`memory.free`；包含ComfyUI，不能冒充本进程显存峰值。结束时nvidia-smi实际`memory.free`为 **140404 MiB**；结束快照为 **2753 MiB已用、0%利用率**，本项目Python进程为NONE，训练所在Pod localhost的ComfyUI健康检查为 **HTTP200**。两份GPT最终哈希未变，`RUN_STATE.json`为`active_training=false`、`quality_gate_passed=false`。 后续接近门槛时应采用NVML `memory.free`；本轮真实余量充足，不因此重跑或重选。
 
-人工Hindi与各语言母语试听、充分native-prompt回归、数据/模型发布权利审核仍未完成，不替换生产模型、不创建HF模型仓库或上传权重。原始音频、转写、prompt及完整私有报告留在受控目录，本文仅列非敏感统计；本地许可/评审包的交付状态另按实际回执记录。
+人工Hindi与各语言母语试听、充分native-prompt回归、数据/模型发布权利审核仍未完成，该轮未替换生产模型、未创建HF模型仓库或上传权重；后续实验发布另见[发布记录](PUBLIC_RELEASE.md)。原始音频、转写、prompt及完整私有报告留在受控目录，本文仅列非敏感统计；本地许可/评审包的交付状态另按实际回执记录。

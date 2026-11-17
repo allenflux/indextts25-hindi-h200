@@ -1,6 +1,6 @@
 # 原生GPT导出与实验性 Hugging Face 发布
 
-用户已明确要求将当前候选上传GitHub和Hugging Face；本次已发布**清楚标记experimental的冻结best100**。这是实验产物公开，不等于Hindi质量、旧语言或生产部署验收通过。公开[HF仓库](https://huggingface.co/fluxa0223/IndexTTS-2.5-Hindi-best100-experimental)已由用户网页上传13文件，固定revision为`117c7922e4dcedc3f9885f3f6efa5be8f54c7919`；匿名核验已通过远端inventory、GPT LFS元数据和12个小文件实际GET/hash。[最新实测](../VALIDATION.md)、[有限test与旧语言stress](FINITE_ACCEPTANCE.md)、[分发边界](DISTRIBUTION.md)
+用户已明确要求将当前候选上传GitHub和Hugging Face；本次已发布**清楚标记experimental的冻结best100**。这是实验产物公开，不等于Hindi质量、旧语言或生产部署验收通过。公开[HF仓库](https://huggingface.co/fluxa0223/IndexTTS-2.5-Hindi-best100-experimental)已由用户网页上传13文件，固定revision为`117c7922e4dcedc3f9885f3f6efa5be8f54c7919`；首次匿名核验通过远端inventory、GPT LFS元数据和12个小文件实际GET/hash；后续已在5090新独立目录匿名完整下载13文件，GPT完整流式SHA匹配冻结值。[最新实测](../VALIDATION.md)、[有限test与旧语言stress](FINITE_ACCEPTANCE.md)、[分发边界](DISTRIBUTION.md)
 
 ## 当前实际候选
 
@@ -39,4 +39,4 @@ GitHub保存非敏感原创代码、模型卡、安装说明和验证摘要，�
 
 按HF官方[上传指南](https://huggingface.co/docs/huggingface_hub/guides/upload)与[仓库管理](https://huggingface.co/docs/huggingface_hub/guides/repository)接口，只提交独立目录的明确白名单；不要设置删除远端不相关文件的参数。[模型卡元数据](https://huggingface.co/docs/hub/model-cards#specifying-a-license)使用自定义bilibili许可，不标MIT。
 
-首次远端核验退出0，状态为`verified_remote_metadata_and_12_small_files`，当时未下载完整GPT。后续已在5090宿主的新独立工作目录使用公开`download_public_release.py`（源码4c9dd0e），匿名SDK固定上述HF revision完成13文件下载，回执`complete=true`；GPT 3,259,538,991 bytes的完整流式SHA与冻结423a8491…值匹配，首次确认完成时，距任务启动约504秒（未测量精确下载耗时），未使用token或GPU。详情见[PUBLIC_RELEASE](PUBLIC_RELEASE.md)。人工Hindi听评与完整旧语言回归继续独立记录；当前固定ComfyUI版本的HI/原始文件清单双阻塞仍在，节点验证准备进行中，尚未运行节点GPU合成。
+首次远端核验退出0，状态为`verified_remote_metadata_and_12_small_files`，当时未下载完整GPT。后续已在5090宿主的新独立工作目录使用公开`download_public_release.py`（源码4c9dd0e），匿名SDK固定上述HF revision完成13文件下载，回执`complete=true`；GPT 3,259,538,991 bytes的完整流式SHA与冻结423a8491…值匹配，首次确认完成时，距任务启动约504秒（未测量精确下载耗时），未使用token或GPU。详情见[PUBLIC_RELEASE](PUBLIC_RELEASE.md)。人工Hindi听评与完整旧语言回归继续独立记录。源码`7c950e3`对应的真实T8四节点隔离兼容副本已在RTX 5090分别完成candidate HI与base ZH各一份WAV，见[5090切换与验证范围](RTX5090_SWITCHING.md)。未修改的原插件`1ff425ece89ef9824f58f0e4dbfb057991814e88`仍有HI白名单与原始模型清单双重阻塞；旧模型保持不动。隔离结果不等于完整八节点ComfyUI queue、同进程回切或质量通过，也不表示新代码已经部署生产。后续集群操作按迁移安排暂停。

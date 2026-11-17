@@ -4,6 +4,8 @@
 
 best100 已在 Linux/H200 上由真实官方 2.5 加载、合成并完成有限对照；正式质量 gate 仍为 false。建议给 Hindi 使用独立实验实例，其他语言继续路由到原始模型。共享 attention 和两个 head 已合并，不能保证一个全局候选 GPT 对旧语言完全无影响。
 
+后续RTX5090已真实跑通四节点链路，Hindi与base各一条成功；本项目源码`7c950e32597b09ac51405f16d9e1dfc87aded98b`对应CPU **278/278通过、0跳过、34.841秒**。这不是完整8节点ComfyUI queue，也未验证同进程回切，质量gate仍为false；范围见 [RTX5090切换实测](RTX5090_SWITCHING.md)。
+
 ## 文件与身份
 
 | 项目 | 固定值 |
@@ -15,7 +17,7 @@ best100 已在 Linux/H200 上由真实官方 2.5 加载、合成并完成有限�
 | Hindi best100 `gpt.pth` 实际字节数 | `3259538991` |
 | 选择依据 | 固定 pilot 验证点中 step100 的 loss 最低；未用后续 test/ASR 重新选模 |
 
-SHA256 来自已冻结、实际复核的文件。公开实验仓库已实际创建：[fluxa0223/IndexTTS-2.5-Hindi-best100-experimental](https://huggingface.co/fluxa0223/IndexTTS-2.5-Hindi-best100-experimental)。13文件权重包已通过网页上传，固定revision为`117c7922e4dcedc3f9885f3f6efa5be8f54c7919`。匿名核验确认公开状态、13文件加原`.gitattributes`的inventory、GPT LFS size/SHA及12个小文件实际GET/hash均匹配。GPT部分仅核验LFS元数据，没有再次下载3GB权重；下载后仍须校验本地完整文件，详细回执范围见[PUBLIC_RELEASE](PUBLIC_RELEASE.md)。仓库许可标记为 `other / bilibili-model-license`，指向固定官方模型许可；本项目工具的 MIT 许可不替代该许可。
+SHA256 来自已冻结、实际复核的文件。公开实验仓库已实际创建：[fluxa0223/IndexTTS-2.5-Hindi-best100-experimental](https://huggingface.co/fluxa0223/IndexTTS-2.5-Hindi-best100-experimental)。13文件权重包已通过网页上传，固定revision为`117c7922e4dcedc3f9885f3f6efa5be8f54c7919`。匿名核验确认公开状态、13文件加原`.gitattributes`的inventory、GPT LFS size/SHA及12个小文件实际GET/hash均匹配。首次核验的GPT部分仅检查LFS元数据；后续已在5090宿主用公开匿名下载脚本完成13文件下载，GPT完整流式SHA与冻结值一致。下载者仍须校验自己的本地完整文件，详细回执范围见[PUBLIC_RELEASE](PUBLIC_RELEASE.md)。仓库许可标记为 `other / bilibili-model-license`，指向固定官方模型许可；本项目工具的 MIT 许可不替代该许可。
 
 ## HF 公开 13 文件包：下载与独立加载
 
@@ -41,7 +43,7 @@ release.json
 
 ### 下载到缓存，再复制精确清单
 
-以下按已发布的固定40位commit匿名下载；本轮远端核验没有重新下载GPT完整权重。运行示例后仍须通过本地13文件校验，不能用分支`main`或元数据commit代替该revision。公开读取不需要创建或发送新token。
+以下按已发布的固定40位commit匿名下载；完整payload匿名下载已另有5090宿主实测，本代码块供复现使用。运行示例后仍须通过本地13文件校验，不能用分支`main`或元数据commit代替该revision。公开读取不需要创建或发送新token。
 
 从本项目源码根目录运行，先设置真实持久 `WORK`，缓存与最终公开目录必须分开：
 
@@ -99,7 +101,7 @@ print(json.dumps({"status": checked["status"], "files": checked["files"],
 PY
 ```
 
-这是官方 [HF SDK snapshot 下载](https://huggingface.co/docs/huggingface_hub/v0.36.0/guides/download)加普通文件复制；相关 API 签名已在本地 `huggingface_hub 0.36.2` 核对，未实际联网下载权重。留出缓存与独立副本两份空间。下载进程的 HF/Xet 缓存也单独放在 WORK 内，不改共享认证目录；`token=False` 明确匿名读取。缓存 snapshot 中的文件可能是 blob symlink，示例只把其内容复制成 13 个普通文件；如果中断，残留目录不可当作完成包，也不覆写重用。
+这是官方 [HF SDK snapshot 下载](https://huggingface.co/docs/huggingface_hub/v0.36.0/guides/download)加普通文件复制；相关 API 签名已在本地 `huggingface_hub 0.36.2` 核对；本代码块本身未执行，公开下载脚本的真实完整下载证据另见[发布记录](PUBLIC_RELEASE.md)。留出缓存与独立副本两份空间。下载进程的 HF/Xet 缓存也单独放在 WORK 内，不改共享认证目录；`token=False` 明确匿名读取。缓存 snapshot 中的文件可能是 blob symlink，示例只把其内容复制成 13 个普通文件；如果中断，残留目录不可当作完成包，也不覆写重用。
 
 不要直接把 `hf download --local-dir ...` 的目标当作严格公开目录：HF 会添加 `.cache/huggingface/` 元数据，该目录会被精确 inventory 校验拒绝。远端 `.gitattributes`、额外本地配置、日志和临时文件也不复制进 13 文件目录；不要补入私有 `COMPLETE/provenance` 来迁就旧入口。
 
@@ -245,11 +247,11 @@ IndexTTS2(
 
 冻结 best100 的两条 Hindi test 严格 CER 仍为 **50%**；zh/ja 各一个 Hindi-prompt stress 样本的指标升高。样本有限、ASR 自身有误差、母语人工试听与完整旧语言回归未完成。详见 [有限验收](FINITE_ACCEPTANCE.md) 和 [验证记录](../VALIDATION.md)。Hindi 实验与原模型分开路由；生产默认继续使用原模型，不对所有语言全局替换。
 
-## 当前 ComfyUI 节点的具体兼容结论
+## 原版节点的历史核查与后续RTX5090实测
 
-本轮只读定位了现有节点目录 `custom_nodes/comfyui-indextts25-t8`（相对 ComfyUI 根目录），仓库为 [`T8mars/comfyui-indextts25-t8`](https://github.com/T8mars/comfyui-indextts25-t8/tree/1ff425ece89ef9824f58f0e4dbfb057991814e88)，HEAD 为 `1ff425ece89ef9824f58f0e4dbfb057991814e88`，未修改节点。**该固定版本目前不能把 best100 当作即插即用的 Hindi 模型：存在语言入口与权重清单两项独立阻塞。** 本项目的官方 stock 加载证据不等于该 ComfyUI 节点已加载或生成成功。 新的节点GPU验收正在进行，尚无结果；验收目标保持workflow结构，允许调整language参数。
+早期只读核查的原版节点为`custom_nodes/comfyui-indextts25-t8`（相对ComfyUI根目录），仓库为[`T8mars/comfyui-indextts25-t8`](https://github.com/T8mars/comfyui-indextts25-t8/tree/1ff425ece89ef9824f58f0e4dbfb057991814e88)，固定HEAD `1ff425ece89ef9824f58f0e4dbfb057991814e88`，该阶段未改节点。**未经适配的这个固定版本存在HI入口和原始权重清单双阻塞，不能靠直接覆盖GPT解决。** 后续RTX5090已取得四节点Hindi/base各一条的实际成功记录；保持workflow结构、允许调整language参数的具体路线和限制见[RTX5090切换实测](RTX5090_SWITCHING.md)，不据此声称完整8节点queue或同进程回切通过。
 
-1. **当前标准生成入口不支持 HI。** 生成节点的语言选项及运行时白名单均只有 `ZH/EN/JA/ES/AR`；手传 `HI` 也会在取得模型前被拒绝。分段器的自动 token 上限也只覆盖这五种语言。其他 ASR/audio.cpp 节点出现的 `AUTO` 不是此标准生成路径的 Hindi 自动识别支持。[节点定义](https://github.com/T8mars/comfyui-indextts25-t8/blob/1ff425ece89ef9824f58f0e4dbfb057991814e88/nodes_v3.py#L2955)、[运行时白名单](https://github.com/T8mars/comfyui-indextts25-t8/blob/1ff425ece89ef9824f58f0e4dbfb057991814e88/runtime/inference_adapter.py#L100)、[分段器](https://github.com/T8mars/comfyui-indextts25-t8/blob/1ff425ece89ef9824f58f0e4dbfb057991814e88/runtime/text_planner.py#L19)。
+1. **该原版标准生成入口不支持 HI。** 生成节点的语言选项及运行时白名单均只有 `ZH/EN/JA/ES/AR`；手传 `HI` 也会在取得模型前被拒绝。分段器的自动 token 上限也只覆盖这五种语言。其他 ASR/audio.cpp 节点出现的 `AUTO` 不是此标准生成路径的 Hindi 自动识别支持。[节点定义](https://github.com/T8mars/comfyui-indextts25-t8/blob/1ff425ece89ef9824f58f0e4dbfb057991814e88/nodes_v3.py#L2955)、[运行时白名单](https://github.com/T8mars/comfyui-indextts25-t8/blob/1ff425ece89ef9824f58f0e4dbfb057991814e88/runtime/inference_adapter.py#L100)、[分段器](https://github.com/T8mars/comfyui-indextts25-t8/blob/1ff425ece89ef9824f58f0e4dbfb057991814e88/runtime/text_planner.py#L19)。
 
 2. **自定义路径不是自定义权重清单。** `custom_model_path` 优先选择解析后的独立目录，loader 随后始终按插件内置 `manifests/model_2_5.json` 检查文件大小；`verify_hashes=false` 仅省略 SHA 检查。其默认 `gpt.pth` 要求 `3259599833` 字节，而本候选为 `3259538991` 字节，直接换文件会被大小检查拒绝；开启 SHA 检查也不会匹配原模型 hash。插件清单还要求 `bpe.model` 和完整 Qwen 文件，不能把本项目不含 Qwen 的 20-file synth 布局或仅 GPT bundle 直接当作完整插件模型目录。不要通过篡改清单、填充字节或“下载/修复”来伪装成原始权重；后续集成须明确登记衍生模型身份及真实资产要求。[目录解析/验证](https://github.com/T8mars/comfyui-indextts25-t8/blob/1ff425ece89ef9824f58f0e4dbfb057991814e88/services/model_store.py#L115)、[固定模型清单](https://github.com/T8mars/comfyui-indextts25-t8/blob/1ff425ece89ef9824f58f0e4dbfb057991814e88/manifests/model_2_5.json)。
 
@@ -259,9 +261,9 @@ IndexTTS2(
 - `ModelHandle.cache_key` 包含 resolved model directory、设备、精度、reference/加速配置及 fingerprint。不同真实目录有不同 key；指向同一目录的 symlink 不构成目录隔离，也不能把该 key 当作模型 SHA 验证。[缓存身份](https://github.com/T8mars/comfyui-indextts25-t8/blob/1ff425ece89ef9824f58f0e4dbfb057991814e88/runtime/types.py#L29)。
 - 精度 UI 支持 `auto/bfloat16/float16/float32`，`auto` 会按设备选择。若后续另行适配并验收，应先明确使用 `bfloat16`、`acceleration_mode=off`、旧 `use_cuda_kernel=false`，保持默认 `reuse_spk_cond_for_emo=false`，不使用情感文本额外加载 Qwen，并显式设置与本项目对照相同的 beam、repetition、normalization 等参数。节点默认采样参数与本项目并不相同；选择这些设置只是在缩小差异，不代表已验证。[精度/模式 UI](https://github.com/T8mars/comfyui-indextts25-t8/blob/1ff425ece89ef9824f58f0e4dbfb057991814e88/nodes_v3.py#L284)、[加速选择](https://github.com/T8mars/comfyui-indextts25-t8/blob/1ff425ece89ef9824f58f0e4dbfb057991814e88/runtime/acceleration.py#L144)、[采样参数](https://github.com/T8mars/comfyui-indextts25-t8/blob/1ff425ece89ef9824f58f0e4dbfb057991814e88/runtime/types.py#L80)、[情感文本的额外加载](https://github.com/T8mars/comfyui-indextts25-t8/blob/1ff425ece89ef9824f58f0e4dbfb057991814e88/runtime/inference_adapter.py#L174)。
 
-实际节点的 **CPU meta 张量接口核验已通过**：按真实构造签名使用 `spk_cond_mode=campplus`，按实际 bundle provenance 的 `checkpoint_container=model` 读取候选；期望与 checkpoint 均为 **456 tensors**，missing **0**、unexpected **0**、shape mismatch **0**，`load_state_dict(strict=True, assign=True)` 通过，`CUDA initialized=false`。节点两文件 working tree 干净且 Git blob 与固定 HEAD 一致；早期探针的参数/容器拼写错误已作为操作错误保留审计，不归因节点。[公开调用](https://github.com/T8mars/comfyui-indextts25-t8/blob/1ff425ece89ef9824f58f0e4dbfb057991814e88/indextts/infer_v2_5.py#L218)、[公开签名](https://github.com/T8mars/comfyui-indextts25-t8/blob/1ff425ece89ef9824f58f0e4dbfb057991814e88/indextts/gpt/model_v2.py#L287)。
+早期该节点的 **CPU meta 张量接口核验已通过**：按真实构造签名使用 `spk_cond_mode=campplus`，按实际 bundle provenance 的 `checkpoint_container=model` 读取候选；期望与 checkpoint 均为 **456 tensors**，missing **0**、unexpected **0**、shape mismatch **0**，`load_state_dict(strict=True, assign=True)` 通过，`CUDA initialized=false`。节点两文件 working tree 干净且 Git blob 与固定 HEAD 一致；早期探针的参数/容器拼写错误已作为操作错误保留审计，不归因节点。[公开调用](https://github.com/T8mars/comfyui-indextts25-t8/blob/1ff425ece89ef9824f58f0e4dbfb057991814e88/indextts/infer_v2_5.py#L218)、[公开签名](https://github.com/T8mars/comfyui-indextts25-t8/blob/1ff425ece89ef9824f58f0e4dbfb057991814e88/indextts/gpt/model_v2.py#L287)。
 
-这次检查没有提交 ComfyUI queue、没有执行 `IndexTTS2` 完整合成管线构造、前向或候选 GPU 合成，也没有修改现有节点或服务。通过只说明 GPT 的 key/shape 与该实际类匹配，**不解除 HI 语言白名单或固定文件清单两项阻塞**，不证明 ComfyUI 端到端兼容或音质。当前可执行的 Hindi 路径仍是上文已验证的独立官方 stock 入口；保留现有 ComfyUI 与原始模型。
+上述CPU meta检查本身没有提交ComfyUI queue或执行GPU合成，只证明key/shape匹配，不解除原版的HI/固定清单双阻塞。后续四节点GPU成功是另一阶段的真实证据，范围见[RTX5090切换实测](RTX5090_SWITCHING.md)；它不等于完整8节点queue、同进程回切或音质通过。原始模型与冻结13文件发布包保持不动。
 
 ## 发布与许可
 
