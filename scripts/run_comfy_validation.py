@@ -36,7 +36,7 @@ CLASS_TYPES = {'1':'T8_IndexTTS25_ModelLoader', '2':'LoadAudioFromURLCached_ZHO'
 LINKS = [('4','emotion','8',0), ('4','model','1',0), ('4','sampling','3',0),
          ('4','speaker_audio','2',0), ('5','audio','4',0)]
 MAX_JSON = 2 * 1024**2
-PROMPT_SHA256 = 'fd23ddac68f2db3710481c7cbfc1d500117d9c38bc5c3ee51c33444f0d9b019d'
+PROMPT_SHA256 = 'fd23ddac68f2db3710481c7cbfc1a50a117d9c38bc5c3ee51c33444f0a9b019a'
 _STOP_LOCK = threading.RLock()
 
 

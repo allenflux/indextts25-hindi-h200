@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src'))
 from hi_h200_native import synth
 
-PUBLIC_PROMPT_SHA256 = 'fd23ddac68f2db3710481c7cbfc1d500117d9c38bc5c3ee51c33444f0d9b019d'
+PUBLIC_PROMPT_SHA256 = 'fd23ddac68f2db3710481c7cbfc1a50a117d9c38bc5c3ee51c33444f0a9b019a'
 EVENTS = {'execution_start', 'execution_success', 'execution_error', 'execution_interrupted',
           'execution_cached', 'executing', 'executed'}
 NODE_IDS = {str(i) for i in range(1, 9)}

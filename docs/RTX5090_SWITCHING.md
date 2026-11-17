@@ -49,7 +49,7 @@ WORK/outputs/base-node-probe-003/audio.wav
 
 两份 WAV 仍在持久 Pod 工作区，尚未下载为本轮本地交付，也未附入 Confluence；迁移完成后按 SHA 取得原文件再补可播放附件，不使用旧 H200 试听包冒充本次结果。公开 Git/HF 不包含这些 WAV 或原始参考音频。
 
-本轮都使用同一合法公开示例参考：`IndexTeam/IndexTTS-2-Demo@b01840e8e4fd9753743a6d0466cd73ae1d634a68/examples/voice_01.wav`，原 SHA `e33e6ee0107a1dd58e1d66dd90c13df3d55a8683047cc3d7ea206dad84ed3fc8`。原 48 kHz FLOAT 单声道只转换为 PCM16，不重采样/裁剪；转换后 SHA `fd23ddac68f2db3710481c7cbfc1d500117d9c38bc5c3ee51c33444f0d9b019d`。来源 Space 的 Apache 及 Bilibili 协议、转换 provenance 已保留；这不是 Hindi 母语参考回归，也未新增训练数据。
+本轮都使用同一合法公开示例参考：`IndexTeam/IndexTTS-2-Demo@b01840e8e4fd9753743a6d0466cd73ae1d634a68/examples/voice_01.wav`，原 SHA `e33e6ee0107a1dd58e1d66dd90c13df3d55a8683047cc3d7ea206dad84ed3fc8`。原 48 kHz FLOAT 单声道只转换为 PCM16，不重采样/裁剪；转换后 SHA `fd23ddac68f2db3710481c7cbfc1a50a117d9c38bc5c3ee51c33444f0a9b019a`。来源 Space 的 Apache 及 Bilibili 协议、转换 provenance 已保留；这不是 Hindi 母语参考回归，也未新增训练数据。
 
 ## 为什么需要一次兼容更新
 
@@ -85,7 +85,7 @@ python scripts/probe_t8_nodes.py \
   --workspace-root "$WORK" --node-root "$T8_COMPAT" \
   --model-dir "$HINDI_MODEL_DIR" --comfy-root "$COMFY_ROOT" \
   --prompt "$WORK/reference/voice_01-pcm16.wav" \
-  --prompt-sha256 fd23ddac68f2db3710481c7cbfc1d500117d9c38bc5c3ee51c33444f0d9b019d \
+  --prompt-sha256 fd23ddac68f2db3710481c7cbfc1a50a117d9c38bc5c3ee51c33444f0a9b019a \
   --candidate-revision "$HF_REV" --model-variant hindi --language HI \
   --text 'नमस्ते। यह हिन्दी भाषा का एक छोटा परीक्षण है।' \
   --output-dir "$WORK/outputs/hindi-preflight-new"
@@ -114,3 +114,7 @@ python scripts/probe_t8_nodes.py \
 ## 数据与许可
 
 实际训练只使用 `ai4bharat/indicvoices_r` 的 Hindi，revision `5f4495c91d500742a58d1be2ab07d77f73c0acf8`，两个 TRAIN 分片共 946,963,686 bytes；pilot 64 clips / 16 speakers，train/val/test 按 speaker 隔离。不是 Rasa；本项目 held-out test 不是发布者官方 TEST。来源 CC-BY-4.0 归属及变更说明、官方 Bilibili 中英文完整许可和非背书声明随公开包保留，工具 MIT 不替代模型许可。参考音频、训练语料及私有回执不进公开 Git/HF。
+
+### 参考音频哈希记录更正
+
+后续整图metadata预检因参考SHA不匹配而正确停止，尚未启动GPU。经原始PCM16转换记录、迁移前已成功四节点result.json和当前文件全SHA三向核对，正确值为`fd23ddac68f2db3710481c7cbfc1a50a117d9c38bc5c3ee51c33444f0a9b019a`，与既有音频一致。前版文字摘要/命令中的SHA有转录错误；本次更正固定值，未更换参考音频、模型或放宽校验。失败回执保留。
