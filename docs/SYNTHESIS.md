@@ -57,9 +57,18 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src \
 
 默认保留官方推理 wrapper 的 `kv_cache=True`。可选 `--no-kv-cache` 只把实际、来源已核验的官方 `GPT2InferenceModel` wrapper 现有布尔开关设为 `False`，改为完整上下文生成；不修改官方 positions 逻辑、权重或训练。它是独立实验开关，没有音质改善承诺。
 
-真实官方 `generate` 在随机 tiny 配置中已观察到位置输入差异：cached 路线为 `[0]`、`[2]`、`[3]`，full-context 路线为 `[0]`、`[0,1]`、`[0,1,2]`。这仅证明所观察到的代码行为差异，不能认定为官方 bug，也不能认定为 Hindi 失败原因。截至本节记录，H200 的 no-cache 实验尚未运行；tiny 结果与已完成的 cached WAV 均不能证明 no-cache 的 GPU 行为或质量。
+真实官方 `generate` 在随机 tiny 配置中已观察到位置输入差异：cached 路线为 `[0]`、`[2]`、`[3]`，full-context 路线为 `[0]`、`[0,1]`、`[0,1,2]`。这仅证明所观察到的代码行为差异，不能认定为官方 bug，也不能认定为 Hindi 失败原因。
 
-先按上一节检查共享资源。每组 A/B 固定同一 `variant`、权重、文本、prompt、seed 和全部生成参数，使用两个全新输出目录；不要同时运行以免争抢 GPU。以下示例只改变 cache 开关和输出目录，资产路径需替换为实际已核验的路径：
+随后已在 H200 使用同一已知 TRAIN 文本、prompt、seed1234、max mel512，分别完成原模型与 v2 合并模型的 no-cache 真实 WAV 生成。两次运行均记录 `inference_cache.enabled=false`、`actual_wrapper_verified=true`，证明该输入下真实执行完成。相同 ASR 设置、去除 Unicode P 类标点评分口径的单句结果为：
+
+| no-cache 路线 | CER | WER |
+|---|---:|---:|
+| 原模型 | 0.7916666667 | 1.0 |
+| v2 合并模型 | 0.2361111111 | 0.5882352941 |
+
+v2 合并模型与默认 KV 路线的该句 ASR 指标相同，未观察到单例 ASR 改善；音质改善仍未证实。该训练句诊断不证明 held-out 泛化，也不构成质量 gate 通过或失败修复的结论。默认仍为 `kv_cache=True`，详细结果与局限见 [VALIDATION.md](../VALIDATION.md)。
+
+先按上一节检查共享资源。每组 A/B 固定同一 `variant`、权重、文本、prompt、seed 和全部生成参数，使用两个全新输出目录；不要同时运行以免争抢 GPU。以下操作模板只改变 cache 开关和输出目录，资产路径需替换为实际已核验的路径；示例文本不是上述 TRAIN 音频的实际转写：
 
 ```bash
 common_synth_args=(
@@ -69,7 +78,7 @@ common_synth_args=(
   --merged-bundle "$WORK/exports/hindi-gpt" --variant merged
   --prompt "$WORK/outputs/acceptance/reference.wav"
   --text 'नमस्ते। यह हिन्दी भाषा का एक छोटा परीक्षण है।'
-  --seed 1234 --max-mel-tokens 256
+  --seed 1234 --max-mel-tokens 512
   --execute --allow-cuda --gpu-id 0
   --min-free-gpu-mib 65536 --min-free-ram-mib 32768 --max-utilization 5
 )

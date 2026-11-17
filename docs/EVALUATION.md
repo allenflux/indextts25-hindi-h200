@@ -1,36 +1,47 @@
 # Hindi 与旧语言评测 / 发布门槛
 
-原生路线已完成v1真实训练、恢复、完整合并和stock WAV生成，**Hindi成品与质量发布gate仍未通过**。固定测试集、speaker隔离、文本归一、prompt/text/seed、ASR/声纹模型及revision后再比较；不以训练loss、导出成功或WAV存在宣称音质达标。
+最新64条/16人pilot的best100已完成真实BF16训练后的标准adapter转换、7文件完整GPT合并、H200单feature FP32 parity、两句stock WAV、配对审计与六cases GPU ASR，流水线退出码0。**Hindi训练、导出和生成已实现，小样本ASR改善；正式Hindi质量与发布gate仍未通过。** 人工Hindi试听、旧语言回归和gated数据/模型发布权利审核尚未完成，保留实验标识，原模型未替换，HF未发布。本机CPU检查200/200通过、无跳过（32.050秒），机制检查不替代语音质量验收。
 
-## 当前实测
+## 最新candidate实测
 
-| 维度 | 原模型 | native v1合并GPT | 判定与范围 |
+统一以固定官方small ASR权重、去除Unicode P类标点的口径评分：
+
+| 样本 | 原模型CER / WER | pilot best100 CER / WER | 范围 |
 |---|---|---|---|
-| 单句Hindi ASR | CER 0.7222222222 / WER 1.0 | CER 0.7222222222 / WER 1.0 | 同ASR、同prompt/text/seed的一条4词新句，未见改善；不代表整体质量 |
-| 实际WAV | 2.8328344671秒 | 3.0302040816秒 | 固定官方IndexTTS2真实生成；尚未人工Hindi审听 |
-| 自然度/发音/韵律 | 未评 | 未评 | 需至少两位Hindi评审盲测、报告分歧 |
-| 词类/姓名/数字/币种覆盖 | 未评 | 未评 | 逐项人工检查nukta/virama、连写、鼻音、借词与朗读形式 |
-| 说话人相似度与故障率 | 未评 | 未评 | 两个WAV不能证明完整相似度或截断/重复/静音统计通过 |
-| zh/en/ja/es/ar回归 | 未测 | 未测 | 原模型SHA未改不等于合并模型无回归 |
-| 导出状态一致性 | 固定原始base | 单条train feature FP32 parity通过 | 两个head完整合并、fresh stock严格加载；不自动推出质量通过 |
-| 训练/资源机制 | — | BF16 100 optimizer更新 / 400 microbatch，真实跨进程恢复 | wall吞吐约0.3287805334 updates/s；资源与范围见 [VALIDATION](../VALIDATION.md) |
+| 新4词句 | 0.7222222222 / 1.0 | 0.2222222222 / 0.75 | 同prompt/text/seed与生成设置 |
+| 未参与训练的VAL句 | 0.7448979592 / 1.0 | 0.3469387755 / 0.75 | 完整合法clip；按预设元数据规则选择 |
 
-公开官方small ASR权重已按固定SHA核验并实际GPU转写；本次总共3个cases，仅1例是参考音频校准，另外两例分别是基线与合并生成。去除Unicode P类标点的统一口径下，1例参考音频校准为 **CER 0.1714285714 / WER 0.3333333333**；ASR本身存在误差。单条新句的原模型/合并模型结果相同，不能将这次检查解读成Hindi已改善或对所有句子无改善。没有发布私人音频或原始转写。
+六个ASR cases包含两条真人reference和上述四条生成。既有校准reference为CER **0.1714285714** / WER **0.3333333333**；本次VAL真人reference为CER **0.1734693878** / WER **0.7083333333**。ASR与归一自身误差明显，不能用单一WER阈值直接认证生成可用/不可用，也不能由两个生成例推出整体Hindi泛化。
 
-完整预训练FP32 parity使用独立stock `get_logits`，比较native adapter与无LoRA严格加载的完整合并GPT。固定`rtol=atol=1e-4`通过，两路径的code/text argmax分别逐项相等，teacher-forcing targets也逐项相等；最大绝对差分别为`9.965896606e-5`和`1.36375427246e-4`，loss差`4.76837158e-7`。判定结合相对与绝对容差，不表示全部绝对差小于1e-4，也不表示整个数据集等价。
+两个generation pairs已审核normalized text SHA、prompt WAV、seed、flags、生成设置和token IDs一致，cache保持True。best100的真实stock WAV分别为 **2.6356462585秒 / 7.5464852608秒**，VAL原模型基线为 **6.1881179138秒**。review pack已在Pod本地创建并在Kite Files确认ZIP `WORK/outputs/review/pilot-best100-review.zip`及文件夹`WORK/outputs/review/pilot-best100/`，压缩包1,028,130 bytes，包内10个文件（5 WAV、2 texts、metrics、中文README、MANIFEST）。未下载到Mac、未公开；人工试听尚未完成。
 
-## 扩大训练与发布门槛
+完整预训练FP32 parity在H200使用独立fresh stock `get_logits`，比较native adapter与无LoRA完整合并GPT。固定`rtol=atol=1e-4`通过，两路径targets、code/text argmax分别逐项完全相等。code/text logits最大绝对差分别约 **5.34e-5 / 1.89e-4**，loss差 **4.76837158e-7**。该判定结合相对与绝对容差，不表示所有绝对差小于1e-4；单条train feature不代表整个数据集等价。
 
-小样本gate先从train取16–64条有授权、已听检的完整短语音，每speaker至少两条，并保留独立speaker验证。v1首5步平均loss从9.2158降至末5步6.5180，但新句ASR未改善，尚不能认定发音/对齐过拟合gate通过。检查文本前端、标签、梯度与固定样本生成，保留可复核的失败结果；最终test不反复调参。
+## 数据、训练与选择边界
 
-100-step机制与资源实测已运行；它不替代质量gate。本进程Torch CUDA allocated峰值约5.75 GiB，整设备采样9990 MiB包含ComfyUI，不能归为本训练进程或当作预留显存。继续实验须按共享GPU实时余量与宿主/cgroup内存检查执行。
+pilot离线复用两份合法已有Parquet，新增网络下载为0：64 clips / 16 speakers，完整utterance max20秒，不截断。保留`prepared-frozen` seed78（0..4095中保留全部交集旧split的最小值），仅依据speaker ID选择，没有使用ASR结果；5个交集旧speaker固定，另1个旧speaker不在pilot。train为48条/12人/491.0290416667秒，val为8条/2人/82.9501666667秒，test为8条/2人/69.9240833333秒；三split特征全部实际提取。
 
-fresh v2使用同16条train样本，从原始base开始独立实验：计划max1000、学习率3e-4、warmup25、save25；已在200次更新处成功停止，退出码0，checkpoint与adapter已保存。首5次平均loss **9.2006926 → 末5次0.161443803**，但step200验证loss为 **8.518435359**，仅2个examples。训练样本记忆明显，尚未证明泛化；step200完整合并导出已完成（`complete_native_gpt_bundle`，7个文件）；训练句基线/合并模型WAV及ASR仍待验收，不提前计推理或质量成功。它不是v1续训，两run不能合计为一个300步模型，低训练loss也不能自动通过质量门槛。
+从原始base独立开始，完整预训练2.5 BF16、LoRA rank8/alpha16，学习率1e-4、warmup25、save25，计划max1000。真实第20步checkpoint→新进程第500步，controller退出码0。恢复段480次更新wall耗时364.5355719514秒（含加载、验证与checkpoint），约1.3167 updates/s；本进程Torch CUDA allocated峰值约5.77 GiB，整设备采样9868 MiB包含ComfyUI，不能归为本进程。
 
-发布前必须补齐：多句held-out Hindi评测与ASR误差分析、至少两位Hindi评审的盲听、发音/词类/相似度与故障率、旧语言回归、干净环境加载、真实模型卡、数据/模型权利审核与复现哈希。当前val/test各只有一位speaker，正式泛化结论需要更充分的独立speaker与样本量。尚未创建HF模型仓库或上传权重。
+首5次loss均值9.3807→末5次1.2382，但固定5个验证点（每次全部8例）在100/200/300/400/500步分别为6.6251/6.8917/7.0331/7.2082/7.3474。验证loss持续上升，已停止扩大该run，选择验证最低的 **100步**，不选last500，**未按ASR挑checkpoint，不用test调参**。VAL与train按speaker隔离，但参与选模，最终test尚未质量验收。真实CUDA complete checkpoint在CPU转换为标准adapter，tensor validation与加载校验通过；转换不恢复训练状态、不执行训练，来源校验保留在`selection.json`，再完成上述实际合并和推理。
+
+VAL生成案例从时长1–12秒、文字≤120 tokens、prompt时长1–15秒的元数据eligible集合取最短者，未按ASR或试听选择。曾有prompt15.724秒的候选在生成前超限弃用；最终使用同speaker不同clip配对的完整合法音频，不截断。
+
+v1、v2、pilot均从原始base独立开始，不能合计为一个800步模型。早期v1新句ASR未改善，v2只有已知TRAIN句改善；noKV没有改善该v2单例的合并ASR，默认cache保持True。单例emotion-conditioning teacher-forcing诊断也不能确定整体Hindi失败原因。完整早期对照、资源窗口和CPU范围见 [VALIDATION](../VALIDATION.md)。
+
+## 仍需通过的发布gate
+
+| 维度 | 当前状态 | 需要补齐 |
+|---|---|---|
+| Hindi自然度/发音/韵律 | 未人工评测 | 至少两位Hindi评审盲听，记录分歧 |
+| 词类/姓名/数字/币种覆盖 | 未系统评测 | nukta/virama、连写、鼻音、借词和朗读形式 |
+| 说话人相似度与故障率 | 未通过 | 相似度及截断/重复/静音等统计 |
+| zh/en/ja/es/ar回归 | 未测 | 固定旧语言集与原模型对照 |
+| 多speaker held-out质量 | 仅少量ASR例 | 更多独立speaker、多句与ASR误差分析 |
+| 数据/模型发布权利与模型卡 | 未完成 | gated使用/再发布条件、许可与真实限制审核 |
+
+本次所有GPU任务均已结束，持久运行状态为selected100、active training=false、quality=false，原模型未替换。pilot val/test各只有两位speaker，正式泛化结论仍需更充分的独立样本。保留固定测试集、speaker隔离、归一规则、prompt/text/seed、ASR/声纹revision与复现哈希。loss下降、WAV存在及stock parity都不自动通过质量gate；尚未创建HF模型仓库或上传权重。
 
 ## legacy外部兼容路线
 
-旧外部参考trainer的`train_heads=true`同时训练mel/text head，却在其adapter导出中遗漏text head；它还缺少明确许可证。这个风险只属于`scripts/check_backend.py`等保留的legacy兼容路线，不能套到当前native完整合并结果上。原生路线已保存两个head及全部可训练参数，并完成上述实际parity和WAV检查；质量gate仍须独立通过。
-
-原始模型保持只读，语言adapter与合并模型各自版本化，旧语言继续保留原始路径；并发使用隔离进程/实例。发布时保留非官方声明、原始许可、来源与已知失败范围，不附带私人数据或训练prompt。
+旧外部参考trainer的`train_heads=true`同时训练mel/text head，却在adapter导出中遗漏text head，且缺少明确许可证。此风险只属于保留的legacy兼容路线；当前原生实现保存两个head及全部可训练状态，已完成实际完整合并、parity与WAV。原始模型只读、语言adapter和合并模型各自版本化；并发使用隔离实例。发布时保留非官方声明、原始许可、来源与已知限制，不附私人数据或训练prompt。

@@ -2,11 +2,13 @@
 
 原创 Hindi 数据工具与实验性原生 LoRA 训练实现。`hi_h200_native` 直接调用固定官方模块，已打通完整预训练2.5的BF16训练、跨进程恢复、完整GPT合并导出和stock真实WAV推理；没有导入或复制未许可社区代码。
 
-**Hindi成品目标尚未达到。** v1已完成100次optimizer更新，但同口径单句ASR检查中，原模型与合并模型均为CER 0.7222 / WER 1.0，未见改善；ASR自身有误差，人工Hindi试听与旧语言回归尚未完成，质量gate仍未通过。完整数值与范围见 [VALIDATION.md](VALIDATION.md)：本机191/191、H200宿主CPU189/189测试通过。CPU检查与随机模型gate用于机制验证，实际微调在GPU上运行；不能据loss下降或WAV存在宣称音质达标。官方tokenizer的hi槽位17和`<|hi|>`不代表官方训练过Hindi。
+**真实Hindi训练、导出和stock生成已实现，正式质量gate仍未通过。** 最新64条/16人pilot按固定验证loss选出的best100已完成标准adapter转换、完整GPT合并、H200 FP32 stock parity和两句真实WAV。相同ASR口径下，新4词句CER从0.7222降至0.2222，未参与训练的VAL句从0.7449降至0.3469；这是小样本改善，ASR对真人参考也有明显误差，不能据此认证整体Hindi质量。人工Hindi试听、旧语言回归和数据/模型发布权利审核尚未完成，保留实验标识；原模型未替换，HF未发布。
+
+完整范围见 [VALIDATION.md](VALIDATION.md)：本机200/200、H200宿主CPU189/189测试通过。CPU检查与随机模型gate用于机制验证，实际微调在GPU上运行；不能据loss下降或WAV存在宣称音质达标。官方tokenizer的hi槽位17和`<|hi|>`不代表官方训练过Hindi。
 
 ## 原生训练路线
 
-从 [原生指南](docs/NATIVE.md) 开始，并先阅读 [安全与依赖范围](SECURITY.md)；完整原模型/合并模型的离线波形验收入口见 [合成指南](docs/SYNTHESIS.md)。配置示例为`configs/native-dataset.example.json`、`native-train.example.json`和`native-h200.example.json`。
+从 [原生指南](docs/NATIVE.md) 开始，并先阅读 [安全与依赖范围](SECURITY.md)；完整原模型/合并模型的离线波形验收入口见 [合成指南](docs/SYNTHESIS.md)，验证点转adapter流程见 [Checkpoint选择](docs/CHECKPOINT_SELECTION.md)。配置示例为`configs/native-dataset.example.json`、`native-train.example.json`和`native-h200.example.json`。
 
 1. 在独立持久目录准备Python3.11环境与官方固定源码，保留许可证。核心数据工具零第三方运行依赖；训练依赖通过本项目`[native]`extra或`requirements/native.in`安装。
 2. 先运行资产助手的元数据模式，检查具体文件、体积和许可；显式下载只选已锁定资产，不拉全模型仓库、不覆盖现有模型。
@@ -14,7 +16,7 @@
 4. 用冻结的官方编码器生成原生特征并逐条校验，CPU检查与随机tiny BF16 gate用于机制验证，完整编码器和实际微调仍按共享GPU/宿主内存实时余量分阶段执行。
 5. 先小样本过拟合，再真实STOP/恢复、100次optimizer更新smoke，最后做 [Hindi/旧语言和发布评测](docs/EVALUATION.md)。参数只是实验起点，不承诺GPU小时或音质。
 
-原生实现当前只支持无padding的batch1加梯度累积；冻结声学模块/GPT基础参数，训练attention Conv1D LoRA、Hindi语言行、受限文字行和两个输出head。保存完整可训练状态和两个head，原始权重只读；v1完整合并模型已由fresh stock严格加载并完成单feature FP32 logits对照与真实WAV生成。不同语言adapter各自版本管理；不宣称社区adapter、vLLM、ComfyUI或DeepSpeed兼容。
+原生实现当前只支持无padding的batch1加梯度累积；冻结声学模块/GPT基础参数，训练attention Conv1D LoRA、Hindi语言行、受限文字行和两个输出head。保存完整可训练状态和两个head，原始权重只读；最新best100完整合并模型已由fresh stock严格加载，并完成H200单feature FP32 logits对照与真实WAV生成。不同语言adapter各自版本管理；不宣称社区adapter、vLLM、ComfyUI或DeepSpeed兼容。
 
 ## CPU 数据工具快速检查
 
@@ -51,4 +53,8 @@ raw UTF-8 JSONL每行必填：
 
 外部社区兼容检查仍保留在`scripts/check_backend.py`等工具中，其训练器缺许可证，必须先取得明确许可。该路线的 [H200参考指南](docs/H200.md) 与 [恢复说明](docs/INTERRUPTION.md) 不适用于原生格式；原生路线本身不依赖它。
 
-fresh v2从原始base独立训练，已在200次更新处成功停止并保存checkpoint/adapter；训练样本记忆明显，泛化未证明；step200完整合并导出已完成，训练句基线/合并模型WAV及ASR仍待验收。它不是v1续训，两次run不能合计成一个300步模型。未来HF owner为`fluxa0223`，目前未创建模型仓库或上传权重；[导出说明](docs/EXPORT.md) 保留真实评测与权利审核门槛。共享pod不主动停止、重启或改动ComfyUI，输出使用独立持久目录。一次提取后曾观测到Pod对象被外部重建，原因未确认，不能排除间接资源竞争；后续步骤须重新核实资源和持久状态。
+最新pilot离线复用两份合法已有Parquet，64条/16人、完整utterance max20秒；保留旧split的`prepared-frozen`，train48/val8/test8特征全部实际提取。从原始base独立完成BF16第20步到新进程第500步恢复训练，恢复段wall吞吐约1.3167 updates/s（含加载、验证和checkpoint），本进程Torch CUDA allocated峰值约5.77 GiB。8例验证loss在第100步最低后持续上升，已停止扩大该run，不选last500；best100的转换、7文件完整合并、parity、两句stock WAV、配对审计与六cases GPU ASR均实际完成。checkpoint按5个固定验证点的loss选择，未用ASR挑选；VAL与train按speaker隔离，但参与选模，最终test尚未质量验收。
+
+v1、v2和pilot均从原始base独立开始，不能合计为一个800步模型。早期v1新句未改善、v2只在已知TRAIN句改善及noKV/conditioning诊断保留于验证记录；默认cache保持True。review pack已在Pod本地创建并在Kite Files确认：`WORK/outputs/review/pilot-best100-review.zip`（1,028,130 bytes）及文件夹`WORK/outputs/review/pilot-best100/`，压缩包内10个文件，包含5 WAV、2 texts、metrics、中文README和MANIFEST；未下载到Mac、未公开。
+
+未来HF owner为`fluxa0223`，目前未创建模型仓库或上传权重；[导出说明](docs/EXPORT.md) 保留真实评测与权利审核门槛。本次所有GPU任务均已结束，`RUN_STATE.json`记录selected100、active training=false、quality=false及来源版本；两台已用共享pod的ComfyUI均未被我们停止、重启或修改；HTTP200仅在训练所在Pod的localhost直接实测，原Pod仅由Kite UI确认Ready1/1、restarts0。输出保留在独立持久目录；访问异常的未定原因与最终资源快照见验证记录。
