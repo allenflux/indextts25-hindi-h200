@@ -185,6 +185,8 @@ PYTHONPATH=src python -m hi_h200_native.adapter_synth \
 
 所有官方源码、原始模型、两份 manifest、adapter 和 prompt 都须位于明确的 `WORK` 内；synthesis manifest 须在原始模型目录内，adapter 须独立于原始模型和源码目录。该新入口没有可放宽此范围的 `--readonly-dependency-root` 参数。真实 `--execute` 还要求 `--allow-cuda`、明确 `--gpu-id` 与 GPU/RAM/利用率门槛、fresh 输出、固定官方资产和离线保护。实际加载应在私有 Hindi 实例先以 CPU FP32 严格校验 A/B，再构造官方推理 wrapper；**不写临时 merged GPT，不改原文件，也不接受现有旧语言服务对象**。实际两句生成已单列，默认metadata成功仍不能单独证明已加载或生成。该入口是独立 Python 推理，**不是 T8 runtime adapter 支持，也不保证普通 ComfyUI LoRA 节点、PEFT、社区 adapter、DeepSpeed 或 vLLM 兼容**。
 
+[换模验收方案 v1.0](REPLACEMENT_ACCEPTANCE.md)给出 HI 独立切换与完整 GPT 替换各自的验收和回滚条件。
+
 ## 路由、关闭与恢复
 
 - 旧语言请求始终走从未加载该 adapter 的原模型实例；保持原始文件身份、原路径与服务配置，不对同一个共享对象反复挂载/卸载。

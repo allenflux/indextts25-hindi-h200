@@ -1,5 +1,7 @@
 # IndexTTS 2.5 Hindi / H200
 
+[换模验收方案 v1.0](docs/REPLACEMENT_ACCEPTANCE.md)覆盖 HI 独立切换、完整 GPT 全量替换、5090 原图测试、质量门槛和回滚。
+
 原创 Hindi 数据工具与实验性原生训练实现，直接调用固定官方模块，不导入或复制未许可社区代码。**当前方向已改为重新训练 Hindi 专用的纯 attention LoRA：原模型文件不改，全部 head/embedding 冻结；HI 使用独立 adapter 实例，旧语言使用从未加载该 adapter 的原模型实例。** 新纯 LoRA 的 H200/BF16 run002 已真实从第2步停止后跨进程恢复至100 updates，并产生 step100 adapter；完整文件 SHA 与受限 CPU tensor 实物审计已核对；固定4例 TRAIN 的真实机制 gate 已通过；冻结pilot候选2/2句native未合并真实WAV及独立file/PCM回读已完成，质量验收仍未完成。另一个独立原始 base 的 pilot48 已真实完成2→100恢复，按预声明VAL8均值最低选出并冻结step100，候选SHA为 `15c080715b3b50bf38b33a70f196a9c9e987446e0a6bb87b2e0c8b7835f57dbd`；2/2句未合并native真实合成已完成，纯LoRA ZIP已实际上传并匿名核验；语音质量验收尚未完成。见 [Hindi 纯 LoRA 方案与进度](docs/HINDI_LORA.md)。
 
 **历史 best100 的真实训练、完整 GPT 导出与 stock 生成已实现，正式质量 gate 仍未通过。** 最新64条/16人pilot按固定验证loss选出的best100已完成标准adapter转换、完整GPT合并、H200 FP32 stock parity和两句真实WAV。相同ASR口径下，新4词句CER从0.7222降至0.2222，未参与训练的VAL句从0.7449降至0.3469；这是小样本改善，ASR对真人参考也有明显误差，不能据此认证整体Hindi质量。人工Hindi试听与完整旧语言回归尚未完成，保留实验标识；本次公开包的许可复核和真实加载结果见[发布记录](docs/PUBLIC_RELEASE.md)。原模型未替换；已合并的完整GPT实验权重已[发布至HF](https://huggingface.co/fluxa0223/IndexTTS-2.5-Hindi-best100-experimental/tree/117c7922e4dcedc3f9885f3f6efa5be8f54c7919)，它不是整套声学模型。
