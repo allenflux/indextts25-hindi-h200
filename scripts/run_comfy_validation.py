@@ -367,7 +367,9 @@ def run(args):
     with socket.socket() as availability:
         availability.bind(('127.0.0.1',stage['port']))
     output.mkdir(mode=0o700)
-    report.update(status='controller_started',controller_id=str(uuid.uuid4()),admission=admission)
+    report.update(status='controller_started',controller_id=str(uuid.uuid4()),admission=admission,
+        transient_owned_get_timeout_count=0,
+        read_only_poll_timeout_scope='Only owned queue/history GET TimeoutError after ACK; POST and all existing deadlines/gates unchanged')
     atomic_json(output/'result.json',report)
     nonce=os.urandom(32).hex()
     config={'format':'comfy-owned-validation-bootstrap-v1','stage_root':str(stage_root),
@@ -420,14 +422,31 @@ def run(args):
                     prompt_id=client.submit_once(graphs[index],report['controller_id'])
                     if prompt_id in owned_ids:
                         raise ValueError('Server reused a prompt identity')
-                    owned_ids.add(prompt_id);row.update(prompt_id=prompt_id,status='queued')
+                    owned_ids.add(prompt_id);row.update(prompt_id=prompt_id,status='queued',post_acknowledged=True,
+                        transient_owned_get_timeouts={'queue':0,'history':0})
                     atomic_json(output/'result.json',report)
                     while True:
                         if time.monotonic()>=deadline or process.poll() is not None:
                             raise ValueError('Owned prompt deadline/process failure')
                         sample=runtime_gate(args,gpu_uuid)
-                        check_queue(client.request('GET','/queue'),owned_ids)
-                        descriptor=completed_history(client.request('GET','/history/'+prompt_id),prompt_id,graphs[index])
+                        try:
+                            queue_value=client.request('GET','/queue')
+                        except TimeoutError:
+                            row['transient_owned_get_timeouts']['queue']+=1
+                            report['transient_owned_get_timeout_count']+=1
+                            atomic_json(output/'result.json',report)
+                            time.sleep(.5)
+                            continue  # Same deadline/watchdog; next poll rechecks all runtime gates.
+                        check_queue(queue_value,owned_ids)
+                        try:
+                            history_value=client.request('GET','/history/'+prompt_id)
+                        except TimeoutError:
+                            row['transient_owned_get_timeouts']['history']+=1
+                            report['transient_owned_get_timeout_count']+=1
+                            atomic_json(output/'result.json',report)
+                            time.sleep(.5)
+                            continue
+                        descriptor=completed_history(history_value,prompt_id,graphs[index])
                         if descriptor is not None:
                             break
                         time.sleep(.5)

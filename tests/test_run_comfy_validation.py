@@ -195,7 +195,11 @@ class ControllerContractTests(unittest.TestCase):
         self._second_submit_timeout_fixture()
     def test_reviewed_manifest_pins_reach_bootstrap_and_second_stage_verification(self):
         self._second_submit_timeout_fixture(reviewed=True)
-    def _second_submit_timeout_fixture(self, reviewed=False):
+    def test_acknowledged_get_timeouts_retry_only_reads_and_recheck_runtime_gates(self):
+        self._second_submit_timeout_fixture(read_timeouts=True)
+    def test_acknowledged_non_timeout_get_error_still_aborts_without_retry(self):
+        self._second_submit_timeout_fixture(read_error=True)
+    def _second_submit_timeout_fixture(self, reviewed=False, read_timeouts=False, read_error=False):
         # State-machine fixture only: this is not an observed Comfy/GPU result.
         import stage_comfy_validation as staging
         output = self.home/'controller-report'
@@ -227,6 +231,7 @@ class ControllerContractTests(unittest.TestCase):
         client = Mock()
         client.submit_once.side_effect = [self.prompt_id,TimeoutError('CPU second-submit timeout fixture')]
         state_calls = []
+        timed_out={'queue':0,'history':0}
         def request(method,path,*unused,**options):
             if path=='/validation/state':
                 state_calls.append(path)
@@ -234,8 +239,18 @@ class ControllerContractTests(unittest.TestCase):
                         'cache_entries':[] if len(state_calls)==1 else [cache]}
             if path.startswith('/object_info/'):
                 return {path.rsplit('/',1)[1]:{}}
-            if path=='/queue':return {'queue_running':[],'queue_pending':[]}
-            if path=='/history/'+self.prompt_id:return {'CPU_HISTORY_FIXTURE_ONLY':True}
+            if path=='/queue':
+                if read_error and client.submit_once.call_count == 1:
+                    raise ConnectionResetError('CPU non-timeout read failure')
+                if read_timeouts and client.submit_once.call_count == 1 and timed_out['queue'] == 0:
+                    timed_out['queue']+=1
+                    raise TimeoutError('CPU acknowledged queue GET timeout')
+                return {'queue_running':[],'queue_pending':[]}
+            if path=='/history/'+self.prompt_id:
+                if read_timeouts and timed_out['history'] == 0:
+                    timed_out['history']+=1
+                    raise TimeoutError('CPU acknowledged history GET timeout')
+                return {'CPU_HISTORY_FIXTURE_ONLY':True}
             if path.startswith('/view?'):return audio_bytes
             raise AssertionError('Unexpected state-machine request')
         client.request.side_effect = request
@@ -249,7 +264,7 @@ class ControllerContractTests(unittest.TestCase):
             stack.enter_context(patch.object(c,'preflight',return_value=(report,(stage,self.home/'stage',models,self.home/'prompt-fixture',output,graphs))))
             stack.enter_context(patch.object(c.sys,'platform','linux'))
             stack.enter_context(patch.object(c.synth,'resource_admission',return_value=[{'uuid':'CPU_GPU_UUID_FIXTURE'}]))
-            stack.enter_context(patch.object(c,'runtime_gate',return_value={'fixture_only':True}))
+            gate = stack.enter_context(patch.object(c,'runtime_gate',return_value={'fixture_only':True}))
             stack.enter_context(patch.object(c.probe,'queue_clear'))
             stack.enter_context(patch.object(c.socket,'socket',return_value=MagicMock()))
             verify_stage = stack.enter_context(patch.object(staging,'verify_stage',return_value={}))
@@ -262,29 +277,37 @@ class ControllerContractTests(unittest.TestCase):
             stack.enter_context(patch.object(c,'audio_path',return_value=self.home/'audio-fixture'))
             stack.enter_context(patch.object(c.synth,'wav_info',return_value=audio))
             stop = stack.enter_context(patch.object(c,'stop_owned',side_effect=cleanup))
-            stack.enter_context(patch.object(c.time,'sleep',side_effect=AssertionError('Fixture must not poll/retry')))
-            with self.assertRaises(TimeoutError):c.run(args)
-        self.assertEqual(client.submit_once.call_count,2)
-        self.assertEqual([call.args[0] for call in client.submit_once.call_args_list],graphs[:2])
-        self.assertEqual(report['runs'][0]['status'],'completed_quality_unverified')
-        self.assertEqual(report['runs'][1]['status'],'failed_or_submission_uncertain')
+            sleep = stack.enter_context(patch.object(c.time,'sleep',side_effect=None if read_timeouts else AssertionError('Fixture must not poll/retry')))
+            with self.assertRaises(ConnectionResetError if read_error else TimeoutError):c.run(args)
+        self.assertEqual(client.submit_once.call_count,1 if read_error else 2)
+        self.assertEqual([call.args[0] for call in client.submit_once.call_args_list],graphs[:1] if read_error else graphs[:2])
+        self.assertEqual(report['runs'][0]['status'],'failed_or_submission_uncertain' if read_error else 'completed_quality_unverified')
+        self.assertEqual(report['runs'][1]['status'],'not_executed' if read_error else 'failed_or_submission_uncertain')
         self.assertEqual(report['runs'][2]['status'],'not_executed')
         self.assertNotIn('submitted',report['runs'][2])
         stop.assert_called_once_with(process)
         self.assertEqual(owned_http.call_count,1)
         self.assertTrue(spawn.call_args.kwargs['start_new_session'])
-        self.assertEqual(len(timers),2)
+        self.assertEqual(len(timers),1 if read_error else 2)
         for timer in timers:
             timer.start.assert_called_once();timer.cancel.assert_called_once()
         self.assertFalse((output/'bootstrap.json').exists())
         saved = json.loads((output/'result.json').read_text())
         self.assertEqual(saved['status'],'cycle_failed_not_verified')
-        self.assertEqual(saved['error_type'],'TimeoutError')
+        self.assertEqual(saved['error_type'],'ConnectionResetError' if read_error else 'TimeoutError')
         self.assertTrue(saved['partial_outputs_are_not_success'])
         self.assertTrue(saved['owned_process_cleanup_verified'])
         self.assertEqual(saved['owned_process_returncode'],-15)
         self.assertNotIn('nonce',json.dumps(saved))
         self.assertFalse(saved['quality_verified'])
+        self.assertTrue(saved['runs'][0]['post_acknowledged'])
+        self.assertEqual(saved['transient_owned_get_timeout_count'],2 if read_timeouts else 0)
+        self.assertEqual(saved['runs'][0]['transient_owned_get_timeouts'],{'queue':1,'history':1} if read_timeouts else {'queue':0,'history':0})
+        if read_timeouts:
+            self.assertEqual(sleep.call_count,2)
+            self.assertEqual(gate.call_count,6)  # Startup, pre-submit, three read polls, next pre-submit.
+        else:
+            sleep.assert_not_called()
         if reviewed:
             self.assertEqual(configs[0]['candidate_manifest_sha256'],registration_sha)
             self.assertEqual(configs[0]['candidate_manifest'],str(registration))
