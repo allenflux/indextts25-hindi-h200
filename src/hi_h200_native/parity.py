@@ -15,7 +15,7 @@ import sys
 RTOL = ATOL = 1e-4  # Fixed before seeing results; there is no tolerance CLI override.
 
 
-def stock_forward(stock, batch, text_loss_weight):
+def stock_forward(stock, batch, text_loss_weight, *, hindi_row=17):
     """Independently frame the real stock public APIs; never wrap it with LoRA."""
     import torch
     from torch.nn import functional as F
@@ -24,7 +24,7 @@ def stock_forward(stock, batch, text_loss_weight):
     speaker = stock.spk_emb_proj(batch["spk_emb"].to(device).reshape(1, 192)).unsqueeze(1)
     condition = torch.cat((speaker + batch["emo_vec"].to(device).reshape(1, 1, stock.model_dim),
                            speaker.new_zeros((1, 2, stock.model_dim))), dim=1)
-    _, prefix, attention = stock.prepare_gpt_inputs(condition, text, text.new_tensor([17]))
+    _, prefix, attention = stock.prepare_gpt_inputs(condition, text, text.new_tensor([hindi_row]))
     if not torch.all(attention == 1):
         raise ValueError("Parity requires an unpadded single feature batch")
     mel = torch.cat((codes.new_full((1, 1), stock.start_mel_token), codes), dim=1)
@@ -93,7 +93,7 @@ def preflight(args):
         raise ValueError("Production parity requires the exact full verified original base identity")
     if file_sha256(adapter) != args.adapter_sha256 or provenance.get("adapter_sha256") != args.adapter_sha256 or provenance.get("gpt_sha256") != merged["gpt_sha256"]:
         raise ValueError("Adapter/merged GPT SHA256 identity mismatch")
-    return paths, config, identity, provenance, output, {"implementation_sha256":file_sha256(__file__), "status":"parity_preflight_passed", "models_loaded":False,
+    return paths, config, identity, provenance, output, {"implementation_sha256":file_sha256(__file__), "status":"parity_preflight_passed", "models_loaded":False, "adapter_profile_verified":False,
         "synthesis_quality_verified":False, "full_pretrained_forward_parity_verified":False,
         "dataset_config_sha256":file_sha256(dataset), "adapter_sha256":args.adapter_sha256,
         "merged_gpt_sha256":merged["gpt_sha256"], "base_identity":identity,
@@ -133,8 +133,11 @@ def execute(args, paths, config, identity, provenance, report):
     batch = dataset[args.index]
     native = load_native_model(paths["official_repo"], paths["model_dir"], paths["model_manifest"],
         lora_rank=spec["lora"]["rank"], lora_alpha=spec["lora"]["alpha"], lora_dropout=spec["lora"]["dropout"],
-        text_rows=spec["text_rows"], text_loss_weight=spec["text_loss_weight"])
+        text_rows=spec["text_rows"], text_loss_weight=spec["text_loss_weight"],
+        hindi_row=spec["hindi_row"], training_profile=spec.get("training_profile", "legacy_rows_heads_v1"))
     load_native_adapter(native, args.adapter, args.adapter_sha256)
+    report.update(training_profile=native.training_profile, adapter_spec=native.adapter_spec(),
+                  adapter_spec_sha256=hashlib.sha256(canonical).hexdigest(), adapter_profile_verified=True)
     native.to(device=args.device, dtype=torch.float32).eval()
     with torch.inference_mode():
         expected = {key:value.detach().cpu() for key, value in native(batch).items()}
@@ -153,13 +156,15 @@ def execute(args, paths, config, identity, provenance, report):
     del saved
     stock.to(device=args.device, dtype=torch.float32).eval()
     with torch.inference_mode():
-        actual = stock_forward(stock, batch, spec["text_loss_weight"])
+        actual = stock_forward(stock, batch, spec["text_loss_weight"], hindi_row=spec["hindi_row"])
     comparison = compare_outputs(expected, actual)
-    report.update(status="full_pretrained_single_batch_parity_passed" if comparison["passed"] else "parity_failed",
+    pretrained = identity.get("kind") != "tiny_random_official_cpu_test"
+    passed_status = "full_pretrained_single_batch_parity_passed" if pretrained else "tiny_official_single_batch_parity_passed"
+    report.update(status=passed_status if comparison["passed"] else "parity_failed",
         models_loaded=True, device=args.device, dtype="float32", tf32=False, strict_deterministic=True, seed=1234,
         dataset_identity=dataset.identity, feature_index=args.index, comparison=comparison,
         scope="One verified cached feature batch; no synthesis or old-language regression claim",
-        full_pretrained_forward_parity_verified=comparison["passed"])
+        full_pretrained_forward_parity_verified=bool(pretrained and comparison["passed"]))
     return report
 
 
