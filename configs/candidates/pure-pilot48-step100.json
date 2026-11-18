@@ -1,0 +1,13 @@
+{
+  "adapter_sha256": "15c080715b3b50bf38b33a70f196a9c9e987446e0a6bb87b2e0c8b7835f57dbd",
+  "candidate_id": "pure-pilot48-step100",
+  "export_complete_sha256": "7fed51a055124475d6991cf60efa57167449e080ffaab65683edd67363b56cbc",
+  "export_provenance_sha256": "6b8e741403ee894611b70deb338a618a16bc1c0dcd8627d3bb9dd42260cdf048",
+  "format": "t8-reviewed-complete-gpt-v1",
+  "gpt_bytes": 3259538991,
+  "gpt_sha256": "e87ed7e2f8ea632af261969ee76ab428fdbfe38acaa4e76c785994be63237943",
+  "quality_gate_passed": false,
+  "repository": null,
+  "revision": null,
+  "training_profile": "attention_lora_only_v1"
+}
