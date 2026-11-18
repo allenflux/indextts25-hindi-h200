@@ -176,7 +176,9 @@ def execute(plan):
     lora = options["lora"]
     model = load_native_model(paths["official_repo"], paths["model_dir"], paths["model_manifest"],
         lora_rank=lora["rank"], lora_alpha=lora["alpha"], lora_dropout=lora["dropout"],
-        text_rows=train.text_rows, text_loss_weight=lora["text_loss_weight"])
+        text_rows=() if lora.get("training_profile") == "attention_lora_only_v1" else train.text_rows,
+        text_loss_weight=lora["text_loss_weight"],
+        training_profile=lora.get("training_profile", "legacy_rows_heads_v1"))
     state = torch.load(plan["checkpoint"], map_location="cpu", weights_only=True)
     if digest(plan["checkpoint"]) != plan["sidecar"]["sha256"]:
         raise ValueError("Source checkpoint changed during restricted CPU inspection")

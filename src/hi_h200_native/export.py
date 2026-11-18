@@ -18,7 +18,7 @@ import torch
 from hi_h200.data import load_json
 
 from .model import (Conv1DLoRA, NativeHindiModel, NativeModelError, OFFICIAL_COMMIT,
-                    file_sha256, import_official_model, load_native_adapter,
+                    file_sha256, import_official_model, load_native_adapter, PURE_LORA_PROFILE,
                     load_native_model, preserved_state_digest, verify_official_assets,
                     verify_official_source)
 
@@ -163,10 +163,12 @@ def export_merged_gpt(model, official_repo, output_dir, *, adapter_path, adapter
     if not tiny and "LICENSE" in model_files:
         _exclusive_bytes(destination / "MODEL_LICENSE", (Path(model.native_model_dir) / "LICENSE").read_bytes())
     scope = "tiny random official CPU test, not a pretrained Hindi model" if tiny else "Hindi-intended merged official GPT replacement; acceptance still required"
+    changed_scope = ("只有共享attention的LoRA增量已合并；所有embedding与两个head均保持原始值。"
+                     if model.training_profile == PURE_LORA_PROFILE else "共享attention与两个head已合并；")
     readme = ("# 原创 native GPT 替换件\n\n" + scope + "\n\n"
               "gpt.pth 使用官方加载器支持的 {model: state_dict} 容器；没有optimizer、语料、提示音频或训练清单。"
               "它只替换GPT，其他固定版本的官方资产仍需另备。原始权重和现有ComfyUI目录未被覆盖。\n\n"
-              "共享attention与两个head已合并；全局替换可能影响旧语言。Hindi使用隔离实例，其他语言继续使用原始模型。"
+              + changed_scope + "全局替换可能影响旧语言。Hindi使用隔离实例，其他语言继续使用原始模型。"
               "发布前完成真实预训练模型重载/前向、语音合成和旧语言回归；本导出器不声称这些验收已通过。\n\n"
               "只有COMPLETE.json存在且全部哈希验证成功才是完整导出。中断留下的目录不可作为完成产物。\n")
     _exclusive_bytes(destination / "README.md", readme.encode())
@@ -221,7 +223,8 @@ def export_from_adapter(official_repo, model_dir, model_manifest, adapter_path, 
         raise NativeModelError("Native adapter construction settings are missing")
     parameters = {"lora_rank": spec["lora"]["rank"], "lora_alpha": spec["lora"]["alpha"],
                   "lora_dropout": spec["lora"]["dropout"], "hindi_row": spec["hindi_row"],
-                  "text_rows": spec["text_rows"], "text_loss_weight": spec["text_loss_weight"]}
+                  "text_rows": spec["text_rows"], "text_loss_weight": spec["text_loss_weight"],
+                  "training_profile": spec.get("training_profile", "legacy_rows_heads_v1")}
     del payload
     model = load_native_model(official_repo, model_dir, model_manifest, **parameters)
     return export_merged_gpt(model, official_repo, output_dir, adapter_path=path,

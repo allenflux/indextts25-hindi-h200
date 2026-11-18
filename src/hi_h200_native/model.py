@@ -24,6 +24,8 @@ OFFICIAL_COMMIT = "d9e41aac89fd00b3d71497fddb287b7f24613712"
 MODEL_REPOSITORY = "IndexTeam/IndexTTS-2.5"
 TOKENIZER_FILE = "multilingual_zh_ja_yue_char_del.tiktoken"
 MINIMUM_FILES = {"config.yaml", "gpt.pth", TOKENIZER_FILE, "LICENSE"}
+LEGACY_PROFILE = "legacy_rows_heads_v1"
+PURE_LORA_PROFILE = "attention_lora_only_v1"
 
 
 class NativeModelError(ValueError):
@@ -232,7 +234,7 @@ def _sequence_cross_entropy(logits, targets):
 class NativeHindiModel(nn.Module):
     """Batch-one real teacher-forcing loss; no padded-batch or synthesis claim."""
     def __init__(self, base, *, lora_rank=8, lora_alpha=16.0, lora_dropout=0.0,
-                 hindi_row=17, text_rows=(), text_loss_weight=0.1):
+                 hindi_row=17, text_rows=(), text_loss_weight=0.1, training_profile=LEGACY_PROFILE):
         super().__init__()
         if base.spk_cond_mode != "campplus" or getattr(base, "use_accel", False):
             raise NativeModelError("Native training requires unaccelerated CAMPPlus-mode official GPT")
@@ -240,7 +242,12 @@ class NativeHindiModel(nn.Module):
             raise NativeModelError("Hindi language embedding row is out of range")
         if not math.isfinite(text_loss_weight) or text_loss_weight < 0:
             raise NativeModelError("Text auxiliary loss weight must be finite and nonnegative")
+        if training_profile not in (LEGACY_PROFILE, PURE_LORA_PROFILE):
+            raise NativeModelError("Unknown native training profile")
         rows = tuple(sorted(set(text_rows)))
+        if training_profile == PURE_LORA_PROFILE and rows:
+            raise NativeModelError("Pure attention LoRA freezes all text rows; text_rows must be empty")
+        self.training_profile = training_profile
         if any(type(row) is not int or row in (base.start_text_token, base.stop_text_token) or not 0 <= row < base.number_text_tokens for row in rows):
             raise NativeModelError("Text trainable rows must be valid nonreserved raw token IDs")
         self.base, self.hindi_row, self.text_rows = base, hindi_row, rows
@@ -258,16 +265,28 @@ class NativeHindiModel(nn.Module):
                 setattr(block.attn, attribute, Conv1DLoRA(original, lora_rank, lora_alpha, lora_dropout))
                 self.lora_targets.append(f"gpt.h.{index}.attn.{attribute}")
         self._row_hooks = []
-        base.lang_embedding.weight.requires_grad_(True)
-        self._row_hooks.append(_row_gradient(base.lang_embedding.weight, (hindi_row,)))
-        if rows:
-            base.text_embedding.weight.requires_grad_(True)
-            self._row_hooks.append(_row_gradient(base.text_embedding.weight, rows))
-        for head in (base.mel_head, base.text_head):
-            for parameter in head.parameters():
-                parameter.requires_grad_(True)
+        if training_profile == LEGACY_PROFILE:
+            base.lang_embedding.weight.requires_grad_(True)
+            self._row_hooks.append(_row_gradient(base.lang_embedding.weight, (hindi_row,)))
+            if rows:
+                base.text_embedding.weight.requires_grad_(True)
+                self._row_hooks.append(_row_gradient(base.text_embedding.weight, rows))
+            for head in (base.mel_head, base.text_head):
+                for parameter in head.parameters():
+                    parameter.requires_grad_(True)
+        self.assert_trainable_profile()
+
+    def assert_trainable_profile(self):
+        """Pure mode must never silently admit a head, embedding or base parameter."""
+        if self.training_profile == PURE_LORA_PROFILE:
+            expected = {"base." + target + suffix for target in self.lora_targets
+                        for suffix in (".lora_A", ".lora_B")}
+            actual = {name for name, parameter in self.named_parameters() if parameter.requires_grad}
+            if not expected or actual != expected:
+                raise NativeModelError("Pure attention LoRA requires exactly the attention A/B trainable inventory")
 
     def optimizer_groups(self, weight_decay=0.01):
+        self.assert_trainable_profile()
         if not math.isfinite(weight_decay) or weight_decay < 0:
             raise NativeModelError("Weight decay must be finite and nonnegative")
         no_decay = {id(self.base.lang_embedding.weight), id(self.base.text_embedding.weight)}
@@ -279,12 +298,14 @@ class NativeHindiModel(nn.Module):
                 {"params": protected, "weight_decay": 0.0}]
 
     def trainable_state(self):
+        self.assert_trainable_profile()
         return {name: parameter.detach().cpu().clone() for name, parameter in self.named_parameters() if parameter.requires_grad}
 
     def load_trainable_state(self, state):
+        self.assert_trainable_profile()
         expected = {name: parameter for name, parameter in self.named_parameters() if parameter.requires_grad}
         if not isinstance(state, dict) or set(state) != set(expected):
-            raise NativeModelError("Native adapter does not cover exactly all trainable parameters, including both heads")
+            raise NativeModelError("Native adapter does not cover exactly the complete trainable parameter inventory")
         for name, parameter in expected.items():
             value = state[name]
             if not torch.is_tensor(value) or value.shape != parameter.shape or value.dtype != parameter.dtype or not value.is_floating_point() or not torch.isfinite(value).all():
@@ -303,10 +324,15 @@ class NativeHindiModel(nn.Module):
                 parameter.copy_(state[name].to(device=parameter.device, dtype=parameter.dtype))
 
     def adapter_spec(self):
-        return {"format": "hi_h200_native_batch1_v1", "hindi_row": self.hindi_row,
+        self.assert_trainable_profile()
+        spec = {"format": "hi_h200_native_batch1_v1", "hindi_row": self.hindi_row,
                 "text_rows": list(self.text_rows), "text_loss_weight": self.text_loss_weight,
                 "lora": dict(self.lora_config), "lora_targets": list(self.lora_targets),
                 "heads": ["mel_head", "text_head"], "model_dim": self.base.model_dim}
+        if self.training_profile == PURE_LORA_PROFILE:
+            spec.update(format="hi_h200_native_attention_lora_only_v1", training_profile=PURE_LORA_PROFILE,
+                        heads=[], frozen_embeddings=True)
+        return spec
 
     def _batch(self, batch):
         def item(name):
@@ -356,6 +382,7 @@ class NativeHindiModel(nn.Module):
                 "mel_input": mel_input}
 
     def forward(self, batch):
+        self.assert_trainable_profile()
         data = self.training_inputs(batch)
         text_logits, code_logits = self.base.get_logits(data["condition"], data["text_embeddings"], self.base.text_head,
                                                         data["mel_embeddings"], self.base.mel_head)
@@ -375,6 +402,8 @@ class NativeHindiModel(nn.Module):
 def load_native_model(official_repo, model_dir, model_manifest, **kwargs):
     base, config, identity = load_verified_base(official_repo, model_dir, model_manifest)
     model = NativeHindiModel(base, **kwargs)
+    if model.training_profile == PURE_LORA_PROFILE and len(model.lora_targets) != 48:
+        raise NativeModelError("Production pure LoRA requires the 48 reviewed official attention modules")
     model.native_identity, model.native_config = identity, config
     model.native_model_dir = str(Path(model_dir).resolve())
     model.native_model_manifest = str(Path(model_manifest).resolve())
@@ -382,7 +411,7 @@ def load_native_model(official_repo, model_dir, model_manifest, **kwargs):
     return model
 
 
-def make_tiny_official_model(official_repo, *, seed=None, lora_dropout=0.0):
+def make_tiny_official_model(official_repo, *, seed=None, lora_dropout=0.0, training_profile=LEGACY_PROFILE):
     """Actual small official GPT for CPU math/resume tests, never a pretrained TTS.
 
     Random weights and synthetic code/token IDs test integration and gradients;
@@ -399,7 +428,8 @@ def make_tiny_official_model(official_repo, *, seed=None, lora_dropout=0.0):
                                         "num_blocks":1,"input_layer":"linear","perceiver_mult":1})
     base = cls(**kwargs)
     model = NativeHindiModel(base, lora_rank=2, lora_alpha=4.0, lora_dropout=lora_dropout,
-                             text_rows=tuple(range(2,16)))
+                             text_rows=() if training_profile == PURE_LORA_PROFILE else tuple(range(2,16)),
+                             training_profile=training_profile)
     frozen = hashlib.sha256()
     for name, parameter in model.named_parameters():
         if not parameter.requires_grad:
@@ -450,8 +480,10 @@ def load_native_adapter(model, adapter_path, expected_sha256):
 
 def preserved_state_digest(model):
     """Hash all frozen state and every unselected embedding row, in bounded chunks."""
+    model.assert_trainable_profile()
     trainable = {name.removeprefix("base.") for name, parameter in model.named_parameters() if parameter.requires_grad}
-    selected = {"lang_embedding.weight": {model.hindi_row}, "text_embedding.weight": set(model.text_rows)}
+    selected = ({"lang_embedding.weight": {model.hindi_row}, "text_embedding.weight": set(model.text_rows)}
+                if model.training_profile == LEGACY_PROFILE else {})
     digest = hashlib.sha256()
     def add_bytes(value):
         flat = value.detach().reshape(-1)

@@ -49,12 +49,15 @@ def read_config(path):
     if set(value) != CONFIG_KEYS or type(value["schema_version"]) is not int or value["schema_version"] != 1:
         raise ValueError("Unknown or missing native training fields")
     for name, keys in (("loop", LOOP_KEYS), ("optimizer", OPTIMIZER_KEYS), ("lora", LORA_KEYS)):
-        if not isinstance(value[name], dict) or set(value[name]) != keys:
+        if not isinstance(value[name], dict) or (set(value[name]) != keys and
+                not (name == "lora" and set(value[name]) == keys | {"training_profile"})):
             raise ValueError("Unknown or missing native " + name + " settings")
     for name in ("train_dataset", "val_dataset"):
         value[name] = str(path_value(value[name], path.parent))
     value["output_dir"] = str(path_value(value["output_dir"], path.parent, must_exist=False))
     optimizer, lora = value["optimizer"], value["lora"]
+    if lora.get("training_profile", "legacy_rows_heads_v1") not in ("legacy_rows_heads_v1", "attention_lora_only_v1"):
+        raise ValueError("Unknown native training profile")
     for name in ("learning_rate", "weight_decay", "min_lr_ratio"):
         number = optimizer[name]
         if type(number) not in (int, float) or not math.isfinite(number):
@@ -180,7 +183,9 @@ def train(config_path, *, resume=None, stop_after_updates=None, allow_cuda=False
             torch.use_deterministic_algorithms(True)
         model = load_native_model(train_paths["official_repo"], train_paths["model_dir"], train_paths["model_manifest"],
                                   lora_rank=lora["rank"], lora_alpha=lora["alpha"], lora_dropout=lora["dropout"],
-                                  text_rows=train_data.text_rows, text_loss_weight=lora["text_loss_weight"])
+                                  text_rows=() if lora.get("training_profile") == "attention_lora_only_v1" else train_data.text_rows,
+                                  text_loss_weight=lora["text_loss_weight"],
+                                  training_profile=lora.get("training_profile", "legacy_rows_heads_v1"))
         model.to(torch.device(loop_config.device))
         optimizer = torch.optim.AdamW(model.optimizer_groups(optimizer_config["weight_decay"]),
                                       lr=optimizer_config["learning_rate"], foreach=False)
