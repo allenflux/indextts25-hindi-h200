@@ -265,6 +265,18 @@ class NativeHindiModel(nn.Module):
                 setattr(block.attn, attribute, Conv1DLoRA(original, lora_rank, lora_alpha, lora_dropout))
                 self.lora_targets.append(f"gpt.h.{index}.attn.{attribute}")
         self._row_hooks = []
+        if training_profile == PURE_LORA_PROFILE and base.gpt.is_gradient_checkpointing:
+            # All input embeddings/conditions are frozen. Reentrant checkpointing
+            # runs the block under no_grad when no input requires gradients, losing
+            # the internal LoRA graph. Use the reviewed HF API, without unfreezing
+            # inputs or disabling checkpointing and its activation-memory savings.
+            try:
+                base.gpt.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+            except (TypeError, ValueError, AttributeError) as exc:
+                raise NativeModelError("Pure LoRA requires supported non-reentrant GPT checkpointing") from exc
+            active = [module for module in base.gpt.modules() if getattr(module, "gradient_checkpointing", False)]
+            if not active or any(getattr(getattr(module, "_gradient_checkpointing_func", None), "keywords", {}).get("use_reentrant") is not False for module in active):
+                raise NativeModelError("Pure LoRA non-reentrant checkpointing was not retained by the actual GPT")
         if training_profile == LEGACY_PROFILE:
             base.lang_embedding.weight.requires_grad_(True)
             self._row_hooks.append(_row_gradient(base.lang_embedding.weight, (hindi_row,)))

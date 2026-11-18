@@ -128,6 +128,51 @@ class PureAttentionTests(unittest.TestCase):
             self.assertTrue(torch.equal(model.state_dict()[name].contiguous().view(torch.uint8),
                                         value.contiguous().view(torch.uint8)), name)
 
+    def test_production_checkpointing_true_preserves_lora_gradients_with_frozen_inputs(self):
+        from hi_h200_native.model import NativeHindiModel
+        reference = self.model()
+        kwargs = dict(reference.native_config["gpt"], checkpointing=True)
+        torch.manual_seed(151)
+        # Direct real official constructor with the production checkpointing flag,
+        # rather than the tiny factory's historical checkpointing=False default.
+        base = import_official_model(OFFICIAL)(**kwargs)
+        self.assertTrue(base.gpt.is_gradient_checkpointing)
+        self.assertTrue(base.gpt._gradient_checkpointing_func.keywords["use_reentrant"])
+        model = NativeHindiModel(base, lora_rank=2, lora_alpha=4., training_profile=PURE_LORA_PROFILE)
+        self.assertTrue(base.gpt.is_gradient_checkpointing)
+        self.assertIs(base.gpt._gradient_checkpointing_func.keywords["use_reentrant"], False)
+        inputs = model.training_inputs(batch())
+        self.assertFalse(inputs["prefix"].requires_grad)
+        self.assertFalse(inputs["mel_embeddings"].requires_grad)
+        frozen = preserved_state_digest(model)
+        optimizer = torch.optim.AdamW(model.optimizer_groups(0), lr=.01, foreach=False)
+        other_optimizer = torch.optim.AdamW(reference.optimizer_groups(0), lr=.01, foreach=False)
+        for update in range(2):
+            optimizer.zero_grad(set_to_none=True)
+            other_optimizer.zero_grad(set_to_none=True)
+            torch.manual_seed(381 + update)
+            actual = model(batch())["loss"]
+            self.assertTrue(actual.requires_grad)
+            actual.backward()
+            torch.manual_seed(381 + update)
+            expected = reference(batch())["loss"]
+            expected.backward()
+            torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+            for name, parameter in model.named_parameters():
+                if parameter.requires_grad:
+                    self.assertTrue(torch.isfinite(parameter.grad).all(), name)
+                    torch.testing.assert_close(parameter.grad, dict(reference.named_parameters())[name].grad, rtol=1e-6, atol=1e-7)
+                    if name.endswith(".lora_B") or update > 0:
+                        self.assertGreater(parameter.grad.abs().sum().item(), 0, name)
+                else:
+                    self.assertIsNone(parameter.grad, name)
+            optimizer.step()
+            other_optimizer.step()
+        self.assertEqual(preserved_state_digest(model), frozen)
+        self.assertFalse(base.lang_embedding.weight.requires_grad)
+        self.assertFalse(base.text_embedding.weight.requires_grad)
+        self.assertFalse(any(parameter.requires_grad for head in (base.text_head, base.mel_head) for parameter in head.parameters()))
+
     def test_legacy_spec_unchanged_and_pure_guards_protect_hi_row_and_heads(self):
         legacy = self.model(LEGACY_PROFILE)
         self.assertEqual(legacy.adapter_spec()["format"], "hi_h200_native_batch1_v1")
