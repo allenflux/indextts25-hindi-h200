@@ -105,25 +105,60 @@ def bounded_json(path, maximum):
     return load_json(path.read_text(encoding='utf-8'))
 
 
-def batch_inputs(values, work, expected):
+def local_registration(args, values, work):
+    path = getattr(args, 'candidate_manifest', None)
+    digest = getattr(args, 'candidate_manifest_sha256', None)
+    if path is None and digest is None:
+        return None, None
+    require(args.module == 'batch_synth' and path is not None and digest is not None,
+            'Local candidate registration requires both parent options and only batch_synth')
+    require(values.get('segmentation-mode') == 'stock-token-v1',
+            'The explicit local candidate route requires stock-token-v1')
+    path = existing(path)
+    require(path.is_relative_to(work), 'Candidate registration must remain canonical inside WORK')
+    spec = importlib.util.spec_from_file_location('_reviewed_registration_reader', Path(__file__).with_name('check_t8_compat.py'))
+    compat = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(compat)
+    registration, _ = compat.read_registration(path, digest)
+    require(registration['repository'] is None and registration['revision'] is None,
+            'This finite candidate route permits only explicitly local artifacts')
+    require(registration['gpt_sha256'] == getattr(args, 'expected_merged_gpt_sha256', None)
+            and registration['gpt_bytes'] == CANDIDATE['gpt_bytes'],
+            'Local registration must co-bind the explicit GPT SHA256 and unchanged full-model byte budget')
+    return registration, path
+
+
+def batch_inputs(values, work, expected, registration=None):
     """Small metadata binding only; child still verifies every real model byte."""
     from hi_h200_native import batch_synth
-    require(expected == CANDIDATE['gpt_sha256'], 'This round requires the explicit frozen merged GPT SHA256')
+    pins = CANDIDATE if registration is None else {
+        'gpt_sha256': registration['gpt_sha256'], 'gpt_bytes': registration['gpt_bytes'],
+        'complete_sha256': registration['export_complete_sha256'],
+        'provenance_sha256': registration['export_provenance_sha256']}
+    require(expected == pins['gpt_sha256'], 'This round requires the explicit frozen merged GPT SHA256')
     bundle = Path(values['merged-bundle'])
     complete, provenance = existing(bundle / 'COMPLETE.json'), existing(bundle / 'provenance.json')
     document = bounded_json(complete, 128 * 1024)
     origin = bounded_json(provenance, 2 * 1024 * 1024)
     require(isinstance(document, dict) and isinstance(document.get('files'), dict) and isinstance(origin, dict),
             'Invalid frozen candidate metadata schema')
-    require(hashlib.sha256(complete.read_bytes()).hexdigest() == CANDIDATE['complete_sha256']
-            and hashlib.sha256(provenance.read_bytes()).hexdigest() == CANDIDATE['provenance_sha256']
+    require(hashlib.sha256(complete.read_bytes()).hexdigest() == pins['complete_sha256']
+            and hashlib.sha256(provenance.read_bytes()).hexdigest() == pins['provenance_sha256']
             and document.get('files', {}).get('gpt.pth') == expected
-            and document.get('files', {}).get('provenance.json') == CANDIDATE['provenance_sha256']
+            and document.get('files', {}).get('provenance.json') == pins['provenance_sha256']
             and origin.get('kind') == 'hi_h200_native_merged_official_gpt'
             and origin.get('gpt_sha256') == expected,
             'Frozen candidate metadata identity mismatch')
+    if registration is not None:
+        base = origin.get('base_identity', {})
+        require(origin.get('adapter_sha256') == registration['adapter_sha256']
+                and type(origin.get('optimizer_updates')) is int and 50 <= origin['optimizer_updates'] <= 300
+                and origin.get('official_commit') == batch_synth.synth.OFFICIAL_COMMIT
+                and isinstance(base, dict) and base.get('model_repository') == batch_synth.synth.MODEL_REPO
+                and base.get('model_snapshot_revision') == batch_synth.synth.MODEL_REVISION,
+                'Local candidate adapter, completed step or pinned official origin differs')
     gpt = existing(bundle / 'gpt.pth')
-    require(gpt.is_file() and gpt.stat().st_size == CANDIDATE['gpt_bytes'], 'Frozen candidate GPT size mismatch')
+    require(gpt.is_file() and gpt.stat().st_size == pins['gpt_bytes'], 'Frozen candidate GPT size mismatch')
     front = existing(Path(values['official-repo']) / 'indextts/utils/front.py')
     require(front.is_file() and front.stat().st_size <= 1024 * 1024, 'Official frontend rules must be a bounded local file')
     rows, digest = batch_synth.load_cases(Path(values['cases']), work, Path(values['official-repo']), segmentation_mode=values.get('segmentation-mode', 'single'))
@@ -177,12 +212,15 @@ def plan(args):
     values = module_options(args.module, argv)
     work_name = 'project-root' if args.module == 'asr_limited_eval' else 'workspace-root'
     require(existing(values[work_name]) == work, 'Child and parent WORK must match')
+    registration, registration_path = local_registration(args, values, work)
     readonly = [existing(path) for path in args.readonly_dependency_root]
     require(all(path.is_dir() for path in readonly), 'Read-only dependency roots must be existing canonical directories')
     python_roots = [existing(path) for path in args.python_dependency_root]
     require(all(path.is_dir() and (path.is_relative_to(work) or any(path.is_relative_to(root) for root in readonly))
                 for path in python_roots), 'Python dependency roots must be canonical directories inside WORK or an explicit read-only root')
     protected = [ROOT.resolve(), *readonly, *python_roots, *(existing(path) for path in args.protect_root)]
+    if registration_path is not None:
+        protected.append(registration_path)
     for name in PATH_OPTIONS & values.keys():
         path = existing(values[name])
         shared_model = args.module == 'pure_overfit' and name in {'model-dir', 'model-manifest', 'training-base-manifest'}
@@ -200,8 +238,12 @@ def plan(args):
             protected.append(path)
     budget = {}
     if args.module == 'batch_synth':
-        paths, budget = batch_inputs(values, work, getattr(args, 'expected_merged_gpt_sha256', None))
+        paths, budget = batch_inputs(values, work, getattr(args, 'expected_merged_gpt_sha256', None), registration)
         protected.extend(paths)
+        if registration is not None:
+            budget.update(candidate_id=registration['candidate_id'],
+                          candidate_registration_sha256=args.candidate_manifest_sha256,
+                          candidate_registration_metadata_verified=True)
         if 'segmentation-mode' in values:
             budget['segmentation_mode'] = values['segmentation-mode']
     elif args.module == 'asr_limited_eval':
@@ -217,6 +259,8 @@ def plan(args):
     values.update({work_name: str(work), output_name: str(output)})
     forwarded = [item for name, value in values.items() for entry in (value if isinstance(value, list) else [value])
                  for item in ('--' + name, entry)]
+    if registration is not None:
+        forwarded += ['--expected-merged-gpt-sha256', registration['gpt_sha256']]
     forwarded += ['--execute']
     if args.module == 'asr_limited_eval':
         if values['device'] == 'cuda':
@@ -329,7 +373,11 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument('--module', choices=tuple(MODULES), required=True)
     parser.add_argument('--expected-merged-gpt-sha256',
-                        help='Required for batch_synth: exact frozen candidate GPT SHA256; no other candidate is admitted')
+                        help='Required for batch_synth: fixed e87 candidate GPT SHA256 or the GPT SHA256 co-bound by explicit local registration')
+    parser.add_argument('--candidate-manifest', type=Path,
+                        help='Optional local reviewed registration inside WORK; requires its SHA256 and stock-token-v1')
+    parser.add_argument('--candidate-manifest-sha256',
+                        help='Independently recorded registration SHA256; never an instruction to discover or download a model')
     for name in ('workspace-root', 'report-dir'):
         parser.add_argument('--' + name, type=Path, required=True)
     parser.add_argument('--protect-root', type=Path, action='append', default=[])

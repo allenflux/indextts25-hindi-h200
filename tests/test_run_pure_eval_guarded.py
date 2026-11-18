@@ -101,6 +101,42 @@ class GuardTests(unittest.TestCase):
             '--model-dir',str(folder),'--output',str(self.work/'module-result')]
         return manifest, audio, model
 
+    def local_candidate_fixture(self, step=150):
+        """Fixed 31-byte fake model; never allocate a real weight-size buffer."""
+        _,_,bundle,old_identity=self.batch_fixture()
+        payload=b'METADATA-ONLY CANDIDATE FIXTURE'
+        self.assertLessEqual(len(payload),64)
+        self.assertEqual(len(payload),old_identity['gpt_bytes'])
+        (bundle/'gpt.pth').write_bytes(payload)
+        digest=hashlib.sha256(payload).hexdigest()
+        registration=dict(format='t8-reviewed-complete-gpt-v1',candidate_id='new-val-frozen',
+            repository=None,revision=None,training_profile='attention_lora_only_v1',adapter_sha256='a'*64,
+            gpt_sha256=digest,gpt_bytes=len(payload),export_complete_sha256='b'*64,
+            export_provenance_sha256='c'*64,quality_gate_passed=False)
+        origin=dict(kind='hi_h200_native_merged_official_gpt',gpt_sha256=digest,
+            adapter_sha256=registration['adapter_sha256'],optimizer_updates=step,
+            official_commit='d9e41aac89fd00b3d71497fddb287b7f24613712',
+            base_identity=dict(model_repository='IndexTeam/IndexTTS-2.5',
+                               model_snapshot_revision='c39ce5ba981572cb187443877ff559dfb246ce63'))
+        self.args.module_args+=['--segmentation-mode','stock-token-v1']
+        self.args.candidate_manifest=self.work/'registration.json'
+        self.args.expected_merged_gpt_sha256=digest
+        self.refresh_registration(bundle,registration,origin)
+        return bundle,registration,origin,old_identity
+
+    def write_registration(self, registration):
+        self.args.candidate_manifest.write_text(json.dumps(registration))
+        self.args.candidate_manifest_sha256=hashlib.sha256(self.args.candidate_manifest.read_bytes()).hexdigest()
+
+    def refresh_registration(self,bundle,registration,origin):
+        provenance=bundle/'provenance.json';provenance.write_text(json.dumps(origin))
+        registration['export_provenance_sha256']=hashlib.sha256(provenance.read_bytes()).hexdigest()
+        complete=bundle/'COMPLETE.json'
+        complete.write_text(json.dumps(dict(files={'gpt.pth':registration['gpt_sha256'],
+            'provenance.json':registration['export_provenance_sha256']})))
+        registration['export_complete_sha256']=hashlib.sha256(complete.read_bytes()).hexdigest()
+        self.write_registration(registration)
+
     def run_fixture(self, child, *, exit_code=0, queue=True, stdout='0, GPU-fixture, H200, 140000, 500, 0', ram=100000*1024**2, sleep=None, monitor_error=None):
         prepared = g.plan(self.args)
         handlers = {}
@@ -190,7 +226,8 @@ class GuardTests(unittest.TestCase):
                       ['--segmentation-mode',''],['--segmentation-mode'],
                       ['--segmentation-mode','single','--segmentation-mode','stock-token-v1'],
                       ['--segmentation-mode=stock-token-v1'],['--max-segments','1000'],
-                      ['--max-text-tokens','1000'],['--experimental-stock-segmentation']):
+                      ['--max-text-tokens','1000'],['--experimental-stock-segmentation'],
+                      ['--expected-merged-gpt-sha256','f'*64]):
             with self.subTest(extra=extra),self.assertRaises(ValueError):
                 g.module_options('batch_synth',original+extra)
 
@@ -217,6 +254,96 @@ class GuardTests(unittest.TestCase):
             rows=json.loads(cases.read_text());rows[0]['max_mel_tokens']=513
             cases.write_text(json.dumps(rows))
             with self.assertRaisesRegex(ValueError,'8..512'):g.plan(self.args)
+
+    def test_new_local_registration_binds_child_digest_and_never_changes_fixed_legacy_pins(self):
+        bundle,registration,origin,old=self.local_candidate_fixture()
+        original_open=Path.open
+        def no_weights(path,*args,**kwargs):
+            if path==bundle/'gpt.pth':raise AssertionError('No model reads in metadata plan')
+            return original_open(path,*args,**kwargs)
+        with patch.object(g,'CANDIDATE',old),patch.object(Path,'open',no_weights):
+            prepared=g.plan(self.args);command=prepared['command'];budget=prepared['public']['input_budget']
+            self.assertEqual(command.count('--expected-merged-gpt-sha256'),1)
+            self.assertEqual(command[command.index('--expected-merged-gpt-sha256')+1],registration['gpt_sha256'])
+            self.assertNotIn('--candidate-manifest',command)
+            self.assertEqual(budget['candidate_registration_sha256'],self.args.candidate_manifest_sha256)
+            self.assertTrue(budget['candidate_registration_metadata_verified'])
+            self.assertFalse(budget['candidate_weights_verified_by_supervisor'])
+            self.assertEqual(g.CANDIDATE,old)
+            self.args.candidate_manifest=None;self.args.candidate_manifest_sha256=None
+            with self.assertRaisesRegex(ValueError,'explicit frozen'):g.plan(self.args)
+
+    def test_local_registration_requires_both_options_explicit_stock_mode_and_batch_module(self):
+        _,_,_,old=self.local_candidate_fixture()
+        path,digest=self.args.candidate_manifest,self.args.candidate_manifest_sha256
+        with patch.object(g,'CANDIDATE',old):
+            for p,d in ((path,None),(None,digest)):
+                self.args.candidate_manifest=p;self.args.candidate_manifest_sha256=d
+                with self.subTest(missing=(p is None,d is None)),self.assertRaisesRegex(ValueError,'both parent'):
+                    g.plan(self.args)
+            self.args.candidate_manifest=path;self.args.candidate_manifest_sha256=digest
+            self.args.module_args[-1]='single'
+            with self.assertRaisesRegex(ValueError,'stock-token-v1'):g.plan(self.args)
+            self.args.module_args=self.args.module_args[:-2]
+            with self.assertRaisesRegex(ValueError,'stock-token-v1'):g.plan(self.args)
+            self.args.module='pure_overfit'
+            with self.assertRaisesRegex(ValueError,'only batch_synth'):
+                g.local_registration(self.args,{},self.work)
+
+    def test_local_registration_rejects_bad_digest_remote_identity_profile_and_quality_claim(self):
+        _,registration,_,old=self.local_candidate_fixture()
+        valid=dict(registration)
+        with patch.object(g,'CANDIDATE',old):
+            self.args.candidate_manifest_sha256='f'*64
+            with self.assertRaisesRegex(ValueError,'registration SHA256'):g.plan(self.args)
+            for changes in (dict(repository='example/model',revision='d'*40),
+                            dict(training_profile='legacy_rows_heads_v1'),dict(quality_gate_passed=True),
+                            dict(gpt_bytes=old['gpt_bytes']+1)):
+                changed={**valid,**changes};self.write_registration(changed)
+                with self.subTest(changes=changes),self.assertRaises(ValueError):g.plan(self.args)
+            self.write_registration(valid)
+            self.args.expected_merged_gpt_sha256='e'*64
+            with self.assertRaisesRegex(ValueError,'co-bind'):g.plan(self.args)
+
+    def test_local_registration_step_and_adapter_origin_are_checked_after_metadata_hash_binding(self):
+        bundle,registration,origin,old=self.local_candidate_fixture()
+        valid=dict(origin)
+        with patch.object(g,'CANDIDATE',old):
+            for step in (50,300):
+                origin={**valid,'optimizer_updates':step};self.refresh_registration(bundle,registration,origin)
+                self.assertEqual(g.plan(self.args)['public']['input_budget']['cases'],1)
+            for changes in (dict(optimizer_updates=49),dict(optimizer_updates=301),dict(optimizer_updates=True),
+                            dict(optimizer_updates=100.0),dict(adapter_sha256='e'*64),
+                            dict(official_commit='f'*40),dict(base_identity={} )):
+                origin={**valid,**changes};self.refresh_registration(bundle,registration,origin)
+                with self.subTest(changes=changes),self.assertRaisesRegex(ValueError,'adapter, completed step'):
+                    g.plan(self.args)
+
+    def test_local_registration_complete_provenance_and_payload_size_remain_exact(self):
+        bundle,registration,origin,old=self.local_candidate_fixture()
+        valid=dict(registration)
+        with patch.object(g,'CANDIDATE',old):
+            for key in ('export_complete_sha256','export_provenance_sha256'):
+                self.write_registration({**valid,key:'f'*64})
+                with self.subTest(key=key),self.assertRaisesRegex(ValueError,'identity mismatch'):g.plan(self.args)
+            self.write_registration(valid)
+            with (bundle/'gpt.pth').open('ab') as stream:stream.write(b'x')
+            with self.assertRaisesRegex(ValueError,'size mismatch'):g.plan(self.args)
+
+    def test_local_registration_cannot_escape_work_use_symlink_or_overlap_outputs(self):
+        _,_,_,old=self.local_candidate_fixture()
+        canonical=self.args.candidate_manifest
+        with patch.object(g,'CANDIDATE',old):
+            self.args.report_dir=canonical/'logs'
+            with self.assertRaisesRegex(ValueError,'overlaps'):g.plan(self.args)
+            self.args.report_dir=self.work/'controller'
+            link=self.work/'registration-link.json';link.symlink_to(canonical)
+            self.args.candidate_manifest=link
+            with self.assertRaisesRegex(ValueError,'canonical'):g.plan(self.args)
+            with tempfile.TemporaryDirectory(dir=ROOT/'.runtime') as external:
+                outside=Path(external).resolve()/'registration.json';outside.write_bytes(canonical.read_bytes())
+                self.args.candidate_manifest=outside
+                with self.assertRaisesRegex(ValueError,'inside WORK'):g.plan(self.args)
 
     def test_batch_case_count_mel_cap_variant_and_prompt_scope_are_bounded(self):
         cases,prompt,bundle,identity=self.batch_fixture()

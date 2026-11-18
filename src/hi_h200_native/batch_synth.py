@@ -97,6 +97,9 @@ def load_cases(path, workspace, source, segmentation_mode="single"):
 
 
 def preflight(args):
+    expected_merged = getattr(args,"expected_merged_gpt_sha256",None)
+    if expected_merged is not None and (not isinstance(expected_merged,str) or not re.fullmatch(r"[0-9a-f]{64}",expected_merged)):
+        raise synth.SynthesisError("Expected merged GPT SHA256 must be exactly 64 lowercase hexadecimal characters")
     workspace = args.workspace_root.resolve(strict=True)
     source = synth.verify_source(args.official_repo)
     original, merged = args.model_dir.resolve(strict=True), args.merged_bundle.resolve(strict=True)
@@ -111,6 +114,8 @@ def preflight(args):
     output = synth._independent_output(args.output_dir,workspace,protected)
     config, assets = synth.verify_synth_assets(original,manifest)
     merged_id = synth.verify_merged_bundle(merged,original,assets)
+    if expected_merged is not None and merged_id["gpt_sha256"] != expected_merged:
+        raise synth.SynthesisError("Verified merged GPT differs from the caller-pinned SHA256")
     selected = original / "gpt.pth" if args.variant == "original" else merged / "gpt.pth"
     selected_sha = assets["files"]["gpt.pth"] if args.variant == "original" else merged_id["gpt_sha256"]
     for row in cases:
@@ -123,6 +128,8 @@ def preflight(args):
         "dependencies":synth.dependency_report(workspace,source),"one_model_constructions":0,"models_loaded":False,
         "synthesis_executed":False,"quality_verified":False,"old_language_regression_verified":False,
         "inference_cache":{"enabled":not args.no_kv_cache,"experimental":args.no_kv_cache,"actual_wrapper_verified":False}}
+    if expected_merged is not None:
+        report["expected_merged_gpt_sha256"] = expected_merged
     if getattr(args, "segmentation_mode", "single") == stock_segments.MODE:
         report["segmentation_experiment"] = {"mode":stock_segments.MODE,
             "max_segments":stock_segments.MAX_SEGMENTS,"max_text_tokens":MAX_TEXT_TOKENS,
@@ -373,6 +380,8 @@ def main(argv=None):
     for name in ("workspace-root","official-repo","model-dir","model-manifest","merged-bundle","cases","output-dir"):
         parser.add_argument("--"+name,type=Path,required=True)
     parser.add_argument("--variant",choices=("original","merged"),required=True)
+    parser.add_argument("--expected-merged-gpt-sha256",
+        help="Optional caller pin: reject any different verified merged GPT before model/CUDA execution")
     parser.add_argument("--execute",action="store_true")
     parser.add_argument("--allow-cuda",action="store_true")
     parser.add_argument("--no-kv-cache",action="store_true")

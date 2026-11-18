@@ -227,6 +227,51 @@ class SegmentedMetadataBoundsTests(unittest.TestCase):
             self.assertEqual(path.read_bytes(),payload)
             self.assertFalse(rows[0]['generation_attempted'])
 
+    def test_optional_caller_pin_rejects_before_runtime_without_changing_unpinned_route(self):
+        with tempfile.TemporaryDirectory(dir=ROOT/'.runtime') as tmp:
+            root=Path(tmp)
+            original,merged=root/'original',root/'merged'
+            original.mkdir();merged.mkdir()
+            (original/'model-manifest.json').write_text('{}')
+            with wave.open(str(root/'prompt.wav'),'wb') as audio:
+                audio.setparams((1,2,16000,0,'NONE','not compressed'))
+                audio.writeframes(array.array('h',[1000]*16000).tobytes())
+            cases=root/'cases.json'
+            cases.write_text(json.dumps([dict(id='pin-check',language='hi',text='यह परीक्षण है।',
+                prompt=str((root/'prompt.wav').relative_to(ROOT.parent)),max_mel_tokens=256)],ensure_ascii=False))
+            script="""import sys
+from pathlib import Path
+from types import SimpleNamespace
+from hi_h200_native import batch_synth as b
+args=SimpleNamespace(workspace_root=Path(WORK),official_repo=Path(SOURCE),model_dir=Path(ORIGINAL),
+ model_manifest=Path(ORIGINAL)/'model-manifest.json',merged_bundle=Path(MERGED),cases=Path(CASES),
+ output_dir=Path(OUTPUT),variant='original',no_kv_cache=False,segmentation_mode='single')
+b.synth.verify_synth_assets=lambda *a: ({},{'files':{'gpt.pth':'a'*64}})
+b.synth.verify_merged_bundle=lambda *a: {'gpt_sha256':'b'*64}
+b.synth.dependency_report=lambda *a: {'missing':[]}
+plan,report=b.preflight(args)
+assert 'expected_merged_gpt_sha256' not in report
+assert report['selected_gpt_sha256']=='a'*64
+for pin in ('c'*64,'B'*64,'b'*63,'b'*65,True):
+ args.expected_merged_gpt_sha256=pin
+ try: b.preflight(args)
+ except ValueError: pass
+ else: raise AssertionError('wrong/invalid caller pin accepted')
+args.expected_merged_gpt_sha256='b'*64
+plan,report=b.preflight(args)
+assert report['expected_merged_gpt_sha256']=='b'*64
+assert report['selected_gpt_sha256']=='a'*64
+assert not Path(OUTPUT).exists()
+assert 'torch' not in sys.modules
+assert 'indextts.infer_v2_5' not in sys.modules
+"""
+            for name,value in dict(WORK=str(ROOT.parent),SOURCE=str(OFFICIAL),ORIGINAL=str(original),
+                                   MERGED=str(merged),CASES=str(cases),OUTPUT=str(ROOT.parent/('pin-preflight-'+root.name))).items():
+                script=script.replace(name,repr(value))
+            result=subprocess.run([sys.executable,'-c',script],cwd=ROOT,capture_output=True,text=True,timeout=30,
+                env=dict(os.environ,PYTHONDONTWRITEBYTECODE='1',PYTHONPATH=str(ROOT/'src')))
+            self.assertEqual(result.returncode,0,result.stderr)
+
     def test_complete_pcm_60_seconds_only_explicit_never_truncated_for_asr(self):
         with tempfile.TemporaryDirectory(dir=ROOT/'.runtime') as tmp:
             path=Path(tmp)/'complete.wav'

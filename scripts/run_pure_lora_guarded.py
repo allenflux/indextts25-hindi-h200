@@ -258,7 +258,9 @@ def main(argv=None):
             previous = bounded_json(config.parent/('controller-'+PLAN300+'-fresh2.json'))
             if previous.get('verified_step') != 2 or previous.get('trainer_exit_code') != 0 or previous.get('own_trainer_exited') is not True or previous.get('stop_reason') is not None:
                 raise ValueError('The new plan requires its actual successful fresh2 stage')
-            verify_native_terminal(run,2,options,optimization)
+            current_audit = verify_native_terminal(run,2,options,optimization)
+            if current_audit != previous.get('terminal_tensor_audit'):
+                raise ValueError('Current step2 bytes differ from the actual successful fresh2 audit')
         command += ['--resume', str(checkpoint)]
     if optimization is not None and args.stage == 'fresh2':
         write_new(optimization['path'],optimization['record'])

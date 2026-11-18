@@ -94,6 +94,28 @@ class PlanTests(unittest.TestCase):
         (self.work/'val/features/manifest.jsonl').write_text('{}\n'*7)
         with self.assertRaisesRegex(ValueError,'TRAIN48/VAL8'):self.plan()
 
+    def test_resume_rejects_replacement_step2_even_if_current_tensor_audit_passes(self):
+        plan=self.plan();g.write_new(plan['path'],plan['record'])
+        run=Path(self.options['output_dir']);(run/'checkpoints').mkdir(parents=True)
+        checkpoint=run/'checkpoints/step00000002.pt'
+        checkpoint.write_bytes(b'CPU protocol fixture; no real training checkpoint')
+        checkpoint.with_suffix('.pt.sha256.json').write_text('{}')
+        original={'step':2,'checkpoint_sha256':'a'*64,'adapter_sha256':'b'*64,
+                  'restricted_cpu_tensor_audit':True,'pure_ab_tensors':96,'training_dataset_examples':48,'validation_dataset_examples':8}
+        g.write_new(self.cfgdir/('controller-'+g.PLAN300+'-fresh2.json'),
+            {'verified_step':2,'trainer_exit_code':0,'own_trainer_exited':True,'stop_reason':None,'terminal_tensor_audit':original})
+        argv=['--config',str(self.config),'--stage','resume300','--plan',g.PLAN300,
+              '--workspace-root',str(self.work),'--config-sha256',self.args.config_sha256]
+        for changed in ('checkpoint_sha256','adapter_sha256'):
+            replacement=dict(original);replacement[changed]='c'*64
+            with self.subTest(changed=changed), patch.dict(os.environ,{'CUDA_VISIBLE_DEVICES':'0','HF_HUB_OFFLINE':'1',
+                    'TRANSFORMERS_OFFLINE':'1','TORCH_FORCE_WEIGHTS_ONLY_LOAD':'1'}), \
+                    patch.object(g,'queue_idle',return_value=True),patch.object(g,'resource_admission',return_value=[{'uuid':'CPU-FIXTURE'}]), \
+                    patch.object(g,'verify_native_terminal',return_value=replacement) as audit,patch.object(g.subprocess,'Popen') as spawn:
+                with self.assertRaisesRegex(ValueError,'successful fresh2 audit'):g.main(argv)
+                audit.assert_called_once();spawn.assert_not_called()
+        self.assertFalse((self.cfgdir/('controller-'+g.PLAN300+'-resume300.json')).exists())
+
     @unittest.skipUnless(AVAILABLE,'Real Torch CPU tensor serialization required')
     def test_restricted_actual_terminal_files_bind96_ab_checkpoint_and_adapter(self):
         torch.set_num_threads(1)
