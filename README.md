@@ -2,6 +2,8 @@
 
 [产品交付实测与放行结论](docs/PRODUCT_DELIVERY.zh.md)记录真实完整 GPT、5090 三轮切换和 Hindi P0 质量阻塞。
 
+[Hindi 部署与 T8 升级](docs/DEPLOYMENT_T8.zh.md)记录原工作流改动、兼容插件安装、5090 复验与回滚步骤。
+
 [Hindi 独立验收与旧语言回归](docs/HINDI_INDEPENDENT_ACCEPTANCE.zh.md)记录新说话人测试、长段停止码风险和五语对照。
 
 [Hindi 优化阶段记录](docs/HINDI_OPTIMIZATION.zh.md)包含 H200 分段与 ASR 对照，以及独立纯 LoRA 训练的冻结证据。
