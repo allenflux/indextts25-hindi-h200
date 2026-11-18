@@ -1,6 +1,6 @@
 # Hindi 专用纯 attention LoRA：新推荐方向
 
-更新日期：2026-11-18。用户已取消直接替换完整 GPT / 单候选全局默认方案，要求**重新训练纯 LoRA，并同步 GitHub 与 Hugging Face**。当前采取：保留已核官方原始模型文件；Hindi 使用独立的原模型 + 新 attention-only adapter 实例；旧语言使用从未加载该 adapter 的原模型实例。**新纯 LoRA 的 H200/BF16 run002 已真实完成第2步停止后跨进程恢复至100 updates，并产生 step100 adapter。** 完整文件大小、SHA 与受限 CPU tensor 实物审计均已核对；固定4例 TRAIN 的 before/after 机制 gate 已真实通过；冻结pilot候选已完成2/2句未合并native真实WAV及独立file/PCM回读；语音质量验收仍未完成。另一个从原始 base 独立开始的 pilot48 已真实完成 fresh2→新进程 resume100，按预声明的四个 VAL8 均值选出并冻结 step100；拟发布候选 SHA 为 `15c080715b3b50bf38b33a70f196a9c9e987446e0a6bb87b2e0c8b7835f57dbd`，不能与小集机制候选混用。独立[pure HF仓库](https://huggingface.co/fluxa0223/IndexTTS-2.5-Hindi-LoRA-experimental)已实际创建并回读Owner fluxa0223/Public，权重尚未上传或完成远端SHA验证；不能把仓库存在、模型卡元数据或训练状态写成权重发布、质量或T8兼容通过。
+更新日期：2026-11-18。用户已取消直接替换完整 GPT / 单候选全局默认方案，要求**重新训练纯 LoRA，并同步 GitHub 与 Hugging Face**。当前采取：保留已核官方原始模型文件；Hindi 使用独立的原模型 + 新 attention-only adapter 实例；旧语言使用从未加载该 adapter 的原模型实例。**新纯 LoRA 的 H200/BF16 run002 已真实完成第2步停止后跨进程恢复至100 updates，并产生 step100 adapter。** 完整文件大小、SHA 与受限 CPU tensor 实物审计均已核对；固定4例 TRAIN 的 before/after 机制 gate 已真实通过；冻结pilot候选已完成2/2句未合并native真实WAV及独立file/PCM回读；语音质量验收仍未完成。另一个从原始 base 独立开始的 pilot48 已真实完成 fresh2→新进程 resume100，按预声明的四个 VAL8 均值选出并冻结 step100；拟发布候选 SHA 为 `15c080715b3b50bf38b33a70f196a9c9e987446e0a6bb87b2e0c8b7835f57dbd`，不能与小集机制候选混用。独立[pure HF仓库](https://huggingface.co/fluxa0223/IndexTTS-2.5-Hindi-LoRA-experimental)已实际创建并回读Owner fluxa0223/Public，ZIP权重包已在固定revision `88e6297852699eb6dfbf6d4677446d37afcacf5f` 上传并经匿名完整下载核验；26文件在ZIP内。不能把发布包完整性通过写成质量或T8兼容通过。
 
 ## 原理与冻结范围
 
@@ -18,7 +18,7 @@ GPT 将文字与语言条件映射为离散语音 semantic codes，后端 codec�
 |---|---|---|
 | 参数范围 | attention LoRA + Hindi/所见 text 行 + 两个完整 head | 仅 attention A/B；所有 head/embedding 冻结 |
 | profile | `legacy_rows_heads_v1` | `attention_lora_only_v1` |
-| 已有产物 / 发布 | HF `117c7922e4dcedc3f9885f3f6efa5be8f54c7919` 为历史完整合并 GPT | run002 step100 adapter 已在受控 Pod 产生；HF 目前仅新模型卡，无新纯 LoRA 权重 |
+| 已有产物 / 发布 | HF `117c7922e4dcedc3f9885f3f6efa5be8f54c7919` 为历史完整合并 GPT | pilot48/15c冻结候选已作为26文件ZIP上传HF固定88e62978 revision并匿名核验；run002/902d机制候选不是发布权重 |
 | 是否可给旧包改名 | 不可 | 必须从已核原始 base 重新训练、单独保存与验收 |
 | 旧语言处理 | 历史候选使用共享更新，有限 stress 不证明无损 | 使用从未加载 adapter 的独立原模型实例 |
 
@@ -50,7 +50,7 @@ GPT 将文字与语言条件映射为离散语音 semantic codes，后端 codec�
 | 固定 TRAIN 机制 gate | 已真实完成固定4例同例 before/after，mean ratio 0.7029568847≤0.9，模块 mechanism_gate_passed=true、frozen_state_unchanged=true；不是语音质量 gate |
 | 独立推理 / Hindi 质量 / T8 | source31fd专用入口已在H200完成2/2句未合并native WAV，两个完整file/PCM均独立回读一致、guard exit0/自有子进程退出。未做人工/ASR/独立TEST/新5090/T8 pure验收，不代表原工作流兼容 |
 | 独立 pilot48 | 原始 base 另起，fresh2 与新进程 resume100 均退出0、verified2/100、own exited=true；严格完成1..100，按预声明 VAL8 最低选100，candidate_frozen=true，TEST未用于选模 |
-| GitHub / HF 同步 | 独立[pure仓库](https://huggingface.co/fluxa0223/IndexTTS-2.5-Hindi-LoRA-experimental)已创建Public/Owner fluxa0223，other/bilibili-model-license元数据已核；权重上传与远端SHA尚未完成。[pure模型卡](HF_PURE_LORA_CARD.zh.md)保留未完成项；打包源码e041已发布不等于包已生成 |
+| GitHub / HF 同步 | 独立[pure权重固定revision](https://huggingface.co/fluxa0223/IndexTTS-2.5-Hindi-LoRA-experimental/tree/88e6297852699eb6dfbf6d4677446d37afcacf5f)已上传ZIP并匿名完整核ZIP/manifest/adapter SHA及26项CRC；网页封面09bc09ae与包内冻结卡a53分开，详见[发布包回执](acceptance/pure-lora-public-package-20261118.json) |
 
 ### pilot48：真实2→100恢复完成，已冻结step100
 
@@ -78,7 +78,7 @@ optimizer updates 严格为1..100，共100次；不把 run002 的100次加进来
 | 75 | 7.053911030292511 |
 | 100 | 6.989858150482178 |
 
-按启动前规则选中100，已写入 `FROZEN_SELECTION`，`test_used_for_selection=false`、`candidate_frozen=true`；后续 TEST/ASR/试听不用于改选。新发布候选 actual adapter 为 **5,931,907 bytes**，SHA256 **`15c080715b3b50bf38b33a70f196a9c9e987446e0a6bb87b2e0c8b7835f57dbd`**，操作者完整字节读取与 trainer 回执一致；这不是下节 run002 的 `902d…cff1` 机制 adapter。该候选的首次真实推理 callback 已通过精确16项 base identity 与96个 A/B 的受限加载，构造48个 LoRA 的官方真实 wrapper；2/2句WAV已完成并独立回读，详见下节。仍无母语/ASR/独立TEST、5090、T8 pure或HF权重发布通过结果。
+按启动前规则选中100，已写入 `FROZEN_SELECTION`，`test_used_for_selection=false`、`candidate_frozen=true`；后续 TEST/ASR/试听不用于改选。新发布候选 actual adapter 为 **5,931,907 bytes**，SHA256 **`15c080715b3b50bf38b33a70f196a9c9e987446e0a6bb87b2e0c8b7835f57dbd`**，操作者完整字节读取与 trainer 回执一致；这不是下节 run002 的 `902d…cff1` 机制 adapter。该候选的首次真实推理 callback 已通过精确16项 base identity 与96个 A/B 的受限加载，构造48个 LoRA 的官方真实 wrapper；2/2句WAV已完成并独立回读，详见下节。HF ZIP已实际发布并核验；母语/ASR/独立TEST、新5090及T8 pure仍未通过。
 
 run002 和该 pilot 的恢复均是实际跨进程继续训练，**没有与不中断连续运行逐位比较，不能宣称 bitwise 连续等价**。
 
@@ -181,7 +181,7 @@ PYTHONPATH=src python -m hi_h200_native.adapter_synth \
   --language hi --text 'नमस्ते।'
 ```
 
-当前训练的精确 base manifest SHA 为 `11dae1733635a0d46e7edbc7c5444900fed2bbb4450767aa4d2820b2221f0e6f`，共16项（13项 payload 及生成辅助 metadata）。不能用 synth plan 替代它。操作者已新建本地兼容资产视图：24项中23个 hardlink 加一个独立复制的原 training asset-plan，保留原 training manifest 的精确 bytes；全部20项 synthesis payload 强制校验通过，未改 base_identity、源文件内容或权限，也未重新复制约7GB payload。hardlink 会改变 nlink/ctime，**不是写隔离**，不得修改共享 inode。公开可复现的 manifest/metadata 材料仍将在 release 准备中审查，不据本地视图成功宣称已向下载者提供完整依赖。
+当前训练的精确 base manifest SHA 为 `11dae1733635a0d46e7edbc7c5444900fed2bbb4450767aa4d2820b2221f0e6f`，共16项（13项 payload 及生成辅助 metadata）。不能用 synth plan 替代它。操作者已新建本地兼容资产视图：24项中23个 hardlink 加一个独立复制的原 training asset-plan，保留原 training manifest 的精确 bytes；全部20项 synthesis payload 强制校验通过，未改 base_identity、源文件内容或权限，也未重新复制约7GB payload。hardlink 会改变 nlink/ctime，**不是写隔离**，不得修改共享 inode。已发布的26文件ZIP提供精确16项training manifest、三份生成辅助metadata及已审公开配置/词表/许可；不含原始GPT或声学等大权重，下载者仍须另备并核验完整原始/synthesis资产，不能把metadata包当作完整依赖。
 
 所有官方源码、原始模型、两份 manifest、adapter 和 prompt 都须位于明确的 `WORK` 内；synthesis manifest 须在原始模型目录内，adapter 须独立于原始模型和源码目录。该新入口没有可放宽此范围的 `--readonly-dependency-root` 参数。真实 `--execute` 还要求 `--allow-cuda`、明确 `--gpu-id` 与 GPU/RAM/利用率门槛、fresh 输出、固定官方资产和离线保护。实际加载应在私有 Hindi 实例先以 CPU FP32 严格校验 A/B，再构造官方推理 wrapper；**不写临时 merged GPT，不改原文件，也不接受现有旧语言服务对象**。实际两句生成已单列，默认metadata成功仍不能单独证明已加载或生成。该入口是独立 Python 推理，**不是 T8 runtime adapter 支持，也不保证普通 ComfyUI LoRA 节点、PEFT、社区 adapter、DeepSpeed 或 vLLM 兼容**。
 
@@ -204,7 +204,28 @@ attention 仍是共享结构；如果把新 adapter 加到其他语言请求中�
 
 ## GitHub / HF 同步与许可边界
 
-GitHub 保存原创源码、配置、schema、模型卡及公开验证摘要；HF 保存**单独命名与版本登记的新纯 LoRA adapter**、固定 base 的依赖说明和完整适用许可。adapter 文件名、训练 profile、step、base SHA、adapter SHA 与对应代码 commit 必须相互一致。已有 `IndexTTS-2.5-Hindi-best100-experimental@117c7922e4dcedc3f9885f3f6efa5be8f54c7919` 保留原样并标为历史完整 GPT，不能通过覆盖、删 head 或重命名伪造新实验。独立仓库[fluxa0223/IndexTTS-2.5-Hindi-LoRA-experimental](https://huggingface.co/fluxa0223/IndexTTS-2.5-Hindi-LoRA-experimental)已由现有本人会话创建并回读Owner/Public及other/bilibili-model-license固定协议元数据；尚未上传新纯LoRA权重，未核远端adapter SHA。已有3eb模型卡元数据提交不能替代此次新权重发布。白名单打包器源码 `e041f7cfde95932475628aedb03e64d62d059ad3` 已发布并经安全审查，但源码发布不表示已造包或上传；[模型卡](HF_PURE_LORA_CARD.zh.md)按已核身份与未完成项陈述，模型卡按两句真实功能结果审定，权重上传与远端验证仍以之后实际回执为准。
+GitHub 保存原创源码、配置、schema、模型卡及公开验证摘要；HF 保存**单独命名与版本登记的新纯 LoRA adapter**、固定 base 的依赖说明和完整适用许可。adapter 文件名、训练 profile、step、base SHA、adapter SHA 与对应代码 commit 必须相互一致。已有 `IndexTTS-2.5-Hindi-best100-experimental@117c7922e4dcedc3f9885f3f6efa5be8f54c7919` 保留原样并标为历史完整 GPT，不能通过覆盖、删 head 或重命名伪造新实验。独立[HF固定权重revision](https://huggingface.co/fluxa0223/IndexTTS-2.5-Hindi-LoRA-experimental/tree/88e6297852699eb6dfbf6d4677446d37afcacf5f)已公开上传 `Hindi-LoRA-step100-public.zip`。6,941,415 bytes / SHA256 `1ede2c2ebc0a196d7cdb3013941487500d21f02269b790eab8cca8da6e9c29fd`，已匿名完整下载并核对26项CRC、manifest SHA和15c候选adapter SHA，匹配本地已审白名单包。26个文件位于ZIP内，不是仓库根目录的散装 `adapter.pt`。网页封面后于 `09bc09ae9720d16ed2580667968a42f2a8940a5d` 更新并回读下载链接；ZIP与包内冻结模型卡a53仍固定在88e62978，仓库封面不与包内README哈希混同。详见[发布包回执](acceptance/pure-lora-public-package-20261118.json)。
+
+### 固定下载、解压与SHA校验
+
+从[不可变ZIP链接](https://huggingface.co/fluxa0223/IndexTTS-2.5-Hindi-LoRA-experimental/resolve/88e6297852699eb6dfbf6d4677446d37afcacf5f/Hindi-LoRA-step100-public.zip)获取公开包。以下操作使用全新目录，先核对整个ZIP再解压；包内manifest、SHA256SUMS、adapter配置、精确base-metadata与完整许可应一并保留。
+
+```bash
+set -euo pipefail
+mkdir hindi-lora-step100-88e62978
+cd hindi-lora-step100-88e62978
+curl --fail --location --output Hindi-LoRA-step100-public.zip \
+  "https://huggingface.co/fluxa0223/IndexTTS-2.5-Hindi-LoRA-experimental/resolve/88e6297852699eb6dfbf6d4677446d37afcacf5f/Hindi-LoRA-step100-public.zip"
+printf '%s  %s\n' \
+  "1ede2c2ebc0a196d7cdb3013941487500d21f02269b790eab8cca8da6e9c29fd" \
+  "Hindi-LoRA-step100-public.zip" | shasum -a 256 -c -
+mkdir package
+unzip Hindi-LoRA-step100-public.zip -d package
+cd package
+shasum -a 256 -c SHA256SUMS
+```
+
+校验通过只证明该26文件发布包的内容身份。仍需单独准备匹配的完整原始base与synthesis大权重，保持精确training manifest字节及生成metadata；不能用HF下载后重写的synth plan代替。包内 `BASE_METADATA.md` 解释这些前提。下载包不含私人音频/数据/特征/optimizer日志，不表示质量、新5090、T8 pure或生产部署通过。
 
 工具 MIT 不替代官方 Bilibili 模型条款、数据 CC-BY-4.0 或其他辅助资产许可；纯 adapter 也不自动豁免衍生分发义务。保留完整中英文协议、归属、变更和非背书说明，不代用户接受 gated 条款，不发布原参考、训练语料、私人转写、speaker/clip 身份、特征、恢复 checkpoint、日志或凭据。此前明确获准公开的两份四节点样本维持原范围，不自动授权本轮新生成音频。[分发说明](DISTRIBUTION.md) · [数据来源](DATA_SOURCES.md)
 

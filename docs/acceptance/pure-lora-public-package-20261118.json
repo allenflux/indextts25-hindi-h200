@@ -56,21 +56,37 @@
   "huggingface_at_last_verified_receipt": {
     "repository": "fluxa0223/IndexTTS-2.5-Hindi-LoRA-experimental",
     "public": true,
-    "commit": "920c683afd74b1a90f66ee18f9c4bc6da311bf9f",
+    "commit": "88e6297852699eb6dfbf6d4677446d37afcacf5f",
     "files": [
       ".gitattributes",
-      "README.md"
+      "README.md",
+      "Hindi-LoRA-step100-public.zip"
     ],
-    "model_card_sha_verified": true,
-    "adapter_uploaded": false,
-    "remote_full_package_integrity_verified": false,
-    "pending": "User must select the audited unpacked package in the existing web upload page; no repeated automatic file chooser attempts."
+    "adapter_uploaded": true,
+    "remote_full_package_integrity_verified": true,
+    "previous_model_card_only_commit": "920c683afd74b1a90f66ee18f9c4bc6da311bf9f",
+    "upload_form": "26-file package inside one ZIP; no loose adapter.pt at repository root",
+    "anonymous_full_zip_download_verified": true,
+    "zip_filename": "Hindi-LoRA-step100-public.zip",
+    "zip_download_url": "https://huggingface.co/fluxa0223/IndexTTS-2.5-Hindi-LoRA-experimental/resolve/88e6297852699eb6dfbf6d4677446d37afcacf5f/Hindi-LoRA-step100-public.zip",
+    "zip_bytes": 6941415,
+    "zip_sha256": "1ede2c2ebc0a196d7cdb3013941487500d21f02269b790eab8cca8da6e9c29fd",
+    "zip_crc_entries_verified": 26,
+    "manifest_sha256_verified": "5835d5f571ea1f70905422d2b91b877b4f49db55d63d9c467a4b97905e862408",
+    "adapter_sha256_inside_zip_verified": "15c080715b3b50bf38b33a70f196a9c9e987446e0a6bb87b2e0c8b7835f57dbd",
+    "verification_scope": "Public pinned revision and three-file inventory; anonymous full ZIP size/SHA, 26 entry CRCs, manifest identity and adapter SHA match the independently reviewed local package",
+    "archive_internal_model_card_sha256": "a53f4d2a19fb1743fea92219fc1d1c499096cf848aa65c6c2d385c7cb72becf6",
+    "web_cover_commit": "09bc09ae9720d16ed2580667968a42f2a8940a5d",
+    "web_cover_fixed_download_link_read_back": true,
+    "web_cover_is_separate_from_archive_internal_frozen_card": true,
+    "all_remote_manifest_payload_hashes_verified": true
   },
   "documentation": {
     "confluence_page_id": "11468802",
     "part_10_published_and_read_back": true,
     "historical_first_nine_sections_preserved": true,
-    "new_generated_audio_publicly_shared": false
+    "new_generated_audio_publicly_shared": false,
+    "part_10_fixed_zip_download_link_published_and_read_back": true
   },
   "limits": {
     "this_receipt_performs_no_training_or_quality_evaluation": true,

@@ -1,6 +1,6 @@
 # IndexTTS 2.5 Hindi / H200
 
-原创 Hindi 数据工具与实验性原生训练实现，直接调用固定官方模块，不导入或复制未许可社区代码。**当前方向已改为重新训练 Hindi 专用的纯 attention LoRA：原模型文件不改，全部 head/embedding 冻结；HI 使用独立 adapter 实例，旧语言使用从未加载该 adapter 的原模型实例。** 新纯 LoRA 的 H200/BF16 run002 已真实从第2步停止后跨进程恢复至100 updates，并产生 step100 adapter；完整文件 SHA 与受限 CPU tensor 实物审计已核对；固定4例 TRAIN 的真实机制 gate 已通过；冻结pilot候选2/2句native未合并真实WAV及独立file/PCM回读已完成，质量验收仍未完成。另一个独立原始 base 的 pilot48 已真实完成2→100恢复，按预声明VAL8均值最低选出并冻结step100，候选SHA为 `15c080715b3b50bf38b33a70f196a9c9e987446e0a6bb87b2e0c8b7835f57dbd`；2/2句未合并native真实合成已完成，仍无质量或权重上传通过结果。见 [Hindi 纯 LoRA 方案与进度](docs/HINDI_LORA.md)。
+原创 Hindi 数据工具与实验性原生训练实现，直接调用固定官方模块，不导入或复制未许可社区代码。**当前方向已改为重新训练 Hindi 专用的纯 attention LoRA：原模型文件不改，全部 head/embedding 冻结；HI 使用独立 adapter 实例，旧语言使用从未加载该 adapter 的原模型实例。** 新纯 LoRA 的 H200/BF16 run002 已真实从第2步停止后跨进程恢复至100 updates，并产生 step100 adapter；完整文件 SHA 与受限 CPU tensor 实物审计已核对；固定4例 TRAIN 的真实机制 gate 已通过；冻结pilot候选2/2句native未合并真实WAV及独立file/PCM回读已完成，质量验收仍未完成。另一个独立原始 base 的 pilot48 已真实完成2→100恢复，按预声明VAL8均值最低选出并冻结step100，候选SHA为 `15c080715b3b50bf38b33a70f196a9c9e987446e0a6bb87b2e0c8b7835f57dbd`；2/2句未合并native真实合成已完成，纯LoRA ZIP已实际上传并匿名核验；语音质量验收尚未完成。见 [Hindi 纯 LoRA 方案与进度](docs/HINDI_LORA.md)。
 
 **历史 best100 的真实训练、完整 GPT 导出与 stock 生成已实现，正式质量 gate 仍未通过。** 最新64条/16人pilot按固定验证loss选出的best100已完成标准adapter转换、完整GPT合并、H200 FP32 stock parity和两句真实WAV。相同ASR口径下，新4词句CER从0.7222降至0.2222，未参与训练的VAL句从0.7449降至0.3469；这是小样本改善，ASR对真人参考也有明显误差，不能据此认证整体Hindi质量。人工Hindi试听与完整旧语言回归尚未完成，保留实验标识；本次公开包的许可复核和真实加载结果见[发布记录](docs/PUBLIC_RELEASE.md)。原模型未替换；已合并的完整GPT实验权重已[发布至HF](https://huggingface.co/fluxa0223/IndexTTS-2.5-Hindi-best100-experimental/tree/117c7922e4dcedc3f9885f3f6efa5be8f54c7919)，它不是整套声学模型。
 
@@ -18,13 +18,34 @@
 
 **pilot48 已真实完成并冻结step100。** 从原始 base 独立开始，非 run002 adapter 继续；旧合法 pilot64 为 TRAIN48/12人（491.029s）、VAL8/2人（82.950s）、TEST8/2人（69.924s）。H200/BF16、累积4、lr1e-4、warmup10、max100、seed260618、每25步保存/验证。fresh2和新进程resume100均exit0、verified2/100、自有进程退出，wall分别40.20832155458629和110.89273961819708秒；严格完成1..100，不与run002累加，wall不是纯GPU时间。
 
-预声明25/50/75/100的VAL8均值依次为8.110908448696136、7.306136906147003、7.053911030292511、6.989858150482178，按最低值选100并写FROZEN_SELECTION，TEST/ASR不参与或事后改选。发布候选5,931,907 bytes / SHA256 `15c080715b3b50bf38b33a70f196a9c9e987446e0a6bb87b2e0c8b7835f57dbd`已完整读取核对；进程Torch peak allocated/reserved为4,043,693,056 / 4,339,007,488 bytes。该候选与下述run002小集机制adapter不同；2/2句native unmerged真实WAV已执行成功并独立回读；质量/独立TEST/5090/T8 pure未通过，独立HF仓库已创建，权重上传及远端SHA未完成。实际恢复没有与连续运行逐位对照，不宣称bitwise连续等价。
+预声明25/50/75/100的VAL8均值依次为8.110908448696136、7.306136906147003、7.053911030292511、6.989858150482178，按最低值选100并写FROZEN_SELECTION，TEST/ASR不参与或事后改选。发布候选5,931,907 bytes / SHA256 `15c080715b3b50bf38b33a70f196a9c9e987446e0a6bb87b2e0c8b7835f57dbd`已完整读取核对；进程Torch peak allocated/reserved为4,043,693,056 / 4,339,007,488 bytes。该候选与下述run002小集机制adapter不同；2/2句native unmerged真实WAV已执行成功并独立回读；质量/独立TEST/5090/T8 pure未通过，独立HF仓库的ZIP权重包已在固定revision `88e6297852699eb6dfbf6d4677446d37afcacf5f` 上传，匿名完整ZIP/manifest/adapter SHA核对通过。实际恢复没有与连续运行逐位对照，不宣称bitwise连续等价。
 
 训练源码 `ed19c4a511be4baafe87b22f74adf6b192a0a55a`；合法小集为 TRAIN16/4人、VAL4/1人、TEST4/1人，未扩集。本轮 rank8/alpha16/dropout0、lr3e-4、warmup5、累积1、max100、seed260618，所有 head/embedding 与基础参数冻结。fresh2 与新进程 resume100 均 exit0、verified step 正确且自有进程退出；共100次更新。step100 adapter 为5,931,907 bytes，SHA256 `902d0729e9b6ac340bfd6e0282294865b184dcc73a8a90dd711df310cdb6cff1`，受限 CPU 实读已核精确96个 FP32/finite A/B tensor、1,474,560参数、step100及纯 profile，前后文件SHA一致、CUDA未初始化；文件仍在受控 Pod，未公开权重。
 
-失败001因 reentrant checkpoint / 全冻输入导致梯度链断，0 updates / 0 checkpoints，记录保留；pure-only non-reentrant 修复不解冻基础参数。最新修复后完整CPU **369/369、43.927秒** 通过（绝对官方源码路径、CUDA隐藏、Hub离线），覆盖non-reentrant修复、pure_overfit和15项eval guard；评估源码已发布 `31fd9fe11d84d5f328afa36c49f363dbe6f9cf24`，训练来源仍是ed19c4a。353项旧快照保留为历史，不替代这次回归。末TRAIN单条loss与VAL均值不用于证明下降。另一次固定4例TRAIN GPU机制比较得到before `9.192850112915039`、after `6.462177276611328`、ratio `0.7029568846698167≤0.9`，模块gate与冻结状态检查通过，控制器exit0/自有进程退出、wall48.250421秒；独立operator-binding核对数据身份一致，模块内部绑定标志仍false。该TRAIN机制gate不是质量；两句独立真实合成另有实际证据，语音质量与T8兼容仍未通过，详见 [HINDI_LORA](docs/HINDI_LORA.md)。独立[pure HF仓库](https://huggingface.co/fluxa0223/IndexTTS-2.5-Hindi-LoRA-experimental)已实际创建并回读Owner fluxa0223/Public与other/bilibili-model-license元数据；尚无新权重上传/远端SHA结果。打包器源码e041已发布并通过安全审查，不代表已造包或上传；[pure模型卡](docs/HF_PURE_LORA_CARD.zh.md)保留实际未完成项，已据两句功能结果审定，实际造包/上传/远端SHA仍以回执为准。
+失败001因 reentrant checkpoint / 全冻输入导致梯度链断，0 updates / 0 checkpoints，记录保留；pure-only non-reentrant 修复不解冻基础参数。最新修复后完整CPU **369/369、43.927秒** 通过（绝对官方源码路径、CUDA隐藏、Hub离线），覆盖non-reentrant修复、pure_overfit和15项eval guard；评估源码已发布 `31fd9fe11d84d5f328afa36c49f363dbe6f9cf24`，训练来源仍是ed19c4a。353项旧快照保留为历史，不替代这次回归。末TRAIN单条loss与VAL均值不用于证明下降。另一次固定4例TRAIN GPU机制比较得到before `9.192850112915039`、after `6.462177276611328`、ratio `0.7029568846698167≤0.9`，模块gate与冻结状态检查通过，控制器exit0/自有进程退出、wall48.250421秒；独立operator-binding核对数据身份一致，模块内部绑定标志仍false。该TRAIN机制gate不是质量；两句独立真实合成另有实际证据，语音质量与T8兼容仍未通过，详见 [HINDI_LORA](docs/HINDI_LORA.md)。独立[pure HF仓库固定权重revision](https://huggingface.co/fluxa0223/IndexTTS-2.5-Hindi-LoRA-experimental/tree/88e6297852699eb6dfbf6d4677446d37afcacf5f)现已公开提供 `Hindi-LoRA-step100-public.zip`：6,941,415 bytes，ZIP SHA256 `1ede2c2ebc0a196d7cdb3013941487500d21f02269b790eab8cca8da6e9c29fd`；匿名完整下载、26项CRC、manifest与adapter SHA均核对通过，见[发布包回执](docs/acceptance/pure-lora-public-package-20261118.json)。仓库该revision只有ZIP、README和.gitattributes，26文件在ZIP内；网页封面后于09bc09ae更新，包内冻结模型卡a53保持不变。[纯LoRA模型卡](docs/HF_PURE_LORA_CARD.zh.md)不等于质量或T8通过。
 
 冻结pilot48候选已由source31fd在H200通过精确training base identity/96A/B后，构造48模块真实wrapper完成第一句未合并WAV；原GPT磁盘文件未换，KV=true，old-instance touched=false。第一例169,038 bytes、84,480帧、3.8312925170068026秒，file SHA `643b7e5f032039b353e8c935de85f7ce830e2bd29e6195dfb0d3bfa5ebd78810`、PCM SHA `eaaccc3a8af22e0c48ce15c778162380999416739468538dfeeb804c3240a243`独立回读一致；guard exit0/自有进程退出。第二例也已成功：84,558 bytes、42,240帧、1.9156462585034013秒，file SHA `562d2a8632777cc001b0d629ec56877a10abad35b4e418d35cd5b57be05542cd`、PCM SHA `0d84b07822247419df5947ba7851064281207f3877b380c11f6424c863b591d0`独立回读一致，guard exit0/自有子进程退出。因此只记2/2 native工程句功能成功，不当作独立TEST或质量。原GPT最终完整SHA仍43a8…，原ComfyHTTP200/队列0/0；新WAV未授权公开。greedy/beams1/penalty1/textnorm=false/maxmel256与原T8图采样参数不同；两句功能成功不等于原工作流、新5090、T8 pure或质量通过，依赖版本差异见[HINDI_LORA](docs/HINDI_LORA.md)。
+
+## 下载与校验纯 LoRA 发布包
+
+使用[固定ZIP下载链接](https://huggingface.co/fluxa0223/IndexTTS-2.5-Hindi-LoRA-experimental/resolve/88e6297852699eb6dfbf6d4677446d37afcacf5f/Hindi-LoRA-step100-public.zip)，不按变化中的main猜测权重身份。以下目录须全新；先验证压缩包完整SHA，再解压并验证包内清单：
+
+```bash
+set -euo pipefail
+mkdir hindi-lora-step100-88e62978
+cd hindi-lora-step100-88e62978
+curl --fail --location --output Hindi-LoRA-step100-public.zip \
+  "https://huggingface.co/fluxa0223/IndexTTS-2.5-Hindi-LoRA-experimental/resolve/88e6297852699eb6dfbf6d4677446d37afcacf5f/Hindi-LoRA-step100-public.zip"
+printf '%s  %s\n' \
+  "1ede2c2ebc0a196d7cdb3013941487500d21f02269b790eab8cca8da6e9c29fd" \
+  "Hindi-LoRA-step100-public.zip" | shasum -a 256 -c -
+mkdir package
+unzip Hindi-LoRA-step100-public.zip -d package
+cd package
+shasum -a 256 -c SHA256SUMS
+```
+
+包内 `adapter.pt` 是原生纯A/B，不是完整GPT或通用ComfyUI LoRA。原始base及声学权重未包含，仍须匹配的原模型、精确training manifest与完整合成依赖；不要将ZIP或adapter直接覆盖原GPT。许可、base-metadata和详细前置见[HINDI_LORA](docs/HINDI_LORA.md)。上传核验不代表独立TEST/ASR/母语质量、新5090或T8 pure已通过。
 
 ## 模型原理与微调依据
 
