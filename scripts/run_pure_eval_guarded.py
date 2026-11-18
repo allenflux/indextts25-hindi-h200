@@ -32,11 +32,11 @@ OPTIONS = {'pure_overfit': COMMON | {'dataset', 'max-seconds'},
     'adapter_synth': COMMON | {'official-repo', 'model-dir', 'model-manifest', 'training-base-manifest',
         'prompt', 'language', 'text', 'max-text-tokens', 'max-mel-tokens'},
     'batch_synth': {'workspace-root', 'official-repo', 'model-dir', 'model-manifest',
-        'merged-bundle', 'cases', 'output-dir', 'variant', 'segmentation-mode'},
+        'merged-bundle', 'cases', 'output-dir', 'variant', 'segmentation-mode', 'segmented-text-budget'},
     'asr_limited_eval': {'project-root', 'input', 'model-dir', 'output', 'device'}}
 REQUIRED = {'pure_overfit': COMMON - {'seed'} | {'dataset'},
     'adapter_synth': COMMON - {'seed'} | {'official-repo', 'model-dir', 'model-manifest', 'training-base-manifest', 'prompt', 'text'},
-    'batch_synth': OPTIONS['batch_synth'] - {'segmentation-mode'},
+    'batch_synth': OPTIONS['batch_synth'] - {'segmentation-mode', 'segmented-text-budget'},
     'asr_limited_eval': {'project-root', 'input', 'model-dir', 'output'}}
 PATH_OPTIONS = {'adapter', 'dataset', 'official-repo', 'model-dir', 'model-manifest', 'training-base-manifest', 'prompt', 'merged-bundle', 'cases'}
 ADMISSION = ('gpu-id', 'min-free-gpu-mib', 'min-free-ram-mib', 'max-utilization')
@@ -94,6 +94,10 @@ def module_options(module, argv):
         require(values['variant'] in {'original', 'merged'}, 'Only original versus the frozen merged candidate is permitted')
         require(values.get('segmentation-mode', 'single') in {'single', 'stock-token-v1'},
                 'Batch segmentation mode must be single or stock-token-v1')
+        if 'segmented-text-budget' in values:
+            require(values['segmented-text-budget'] in {'60', '120'}
+                    and values.get('segmentation-mode') == 'stock-token-v1',
+                    'An explicit 60 or 120 text budget requires stock-token-v1')
     if module == 'asr_limited_eval':
         require(values.get('device', 'cpu') in {'cpu', 'cuda'}, 'ASR device must be cpu or cuda')
     return values
@@ -161,7 +165,12 @@ def batch_inputs(values, work, expected, registration=None):
     require(gpt.is_file() and gpt.stat().st_size == pins['gpt_bytes'], 'Frozen candidate GPT size mismatch')
     front = existing(Path(values['official-repo']) / 'indextts/utils/front.py')
     require(front.is_file() and front.stat().st_size <= 1024 * 1024, 'Official frontend rules must be a bounded local file')
-    rows, digest = batch_synth.load_cases(Path(values['cases']), work, Path(values['official-repo']), segmentation_mode=values.get('segmentation-mode', 'single'))
+    case_options = {'segmentation_mode': values.get('segmentation-mode', 'single')}
+    if 'segmented-text-budget' in values:
+        case_options['segmented_text_budget'] = int(values['segmented-text-budget'])
+    rows, digest = batch_synth.load_cases(Path(values['cases']), work, Path(values['official-repo']), **case_options)
+    if case_options.get('segmented_text_budget') == 60:
+        require(all(row['language'] == 'hi' for row in rows), 'The 60-token budget requires all Hindi cases')
     prompts = [existing(work / row['prompt']) for row in rows]
     return prompts, {'cases': len(rows), 'cases_manifest_sha256': digest,
                     'expected_merged_gpt_sha256': expected, 'candidate_weights_verified_by_supervisor': False}
@@ -246,6 +255,8 @@ def plan(args):
                           candidate_registration_metadata_verified=True)
         if 'segmentation-mode' in values:
             budget['segmentation_mode'] = values['segmentation-mode']
+        if 'segmented-text-budget' in values:
+            budget['segmented_text_budget'] = int(values['segmented-text-budget'])
     elif args.module == 'asr_limited_eval':
         paths, budget = asr_inputs(values, work)
         protected.extend(paths)

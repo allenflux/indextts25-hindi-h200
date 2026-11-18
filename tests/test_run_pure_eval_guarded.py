@@ -244,6 +244,54 @@ class GuardTests(unittest.TestCase):
                 self.assertEqual(prepared['public']['input_budget']['cases_manifest_sha256'],'b'*64)
                 self.assertEqual(prepared['command'].count('--segmentation-mode'),0 if mode is None else 1)
 
+    def test_explicit_text_budget_binds_preflight_command_and_public_budget(self):
+        from hi_h200_native import batch_synth
+        cases,_,_,identity=self.batch_fixture()
+        stock=self.args.module_args+['--segmentation-mode','stock-token-v1']
+        self.args.module_args=stock
+        with patch.object(g,'CANDIDATE',identity):
+            default=g.plan(self.args)
+            self.assertNotIn('--segmented-text-budget',default['command'])
+            self.assertNotIn('segmented_text_budget',default['public']['input_budget'])
+            for budget in (60,120):
+                self.args.module_args=stock+['--segmented-text-budget',str(budget)]
+                with self.subTest(budget=budget), patch.object(batch_synth,'load_cases',wraps=batch_synth.load_cases) as loader:
+                    prepared=g.plan(self.args)
+                    loader.assert_called_once_with(cases,self.work,self.source,segmentation_mode='stock-token-v1',
+                                                   segmented_text_budget=budget)
+                    command=prepared['command']
+                    self.assertEqual(command.count('--segmented-text-budget'),1)
+                    self.assertEqual(command[command.index('--segmented-text-budget')+1],str(budget))
+                    self.assertEqual(prepared['public']['input_budget']['segmented_text_budget'],budget)
+
+    def test_segmented_text_budget_rejects_unbounded_amounts_and_nonstock_modes(self):
+        self.batch_fixture()
+        original=list(self.args.module_args)
+        stock=['--segmentation-mode','stock-token-v1']
+        for value in ('0','59','061','060','61','600','120.0',' 60','+60'):
+            with self.subTest(value=value),self.assertRaisesRegex(ValueError,'explicit 60 or 120'):
+                g.module_options('batch_synth',original+stock+['--segmented-text-budget',value])
+        for value in ('60','120'):
+            for mode in ([],['--segmentation-mode','single']):
+                with self.subTest(value=value,mode=mode),self.assertRaisesRegex(ValueError,'requires stock-token-v1'):
+                    g.module_options('batch_synth',original+mode+['--segmented-text-budget',value])
+        for malformed in (['--segmented-text-budget'],['--segmented-text-budget=60'],
+                          ['--segmented-text-budget','60','--segmented-text-budget','120']):
+            with self.subTest(malformed=malformed),self.assertRaises(ValueError):
+                g.module_options('batch_synth',original+stock+malformed)
+
+    def test_budget60_rejects_mixed_cases_but120_keeps_existing_stock_scope(self):
+        cases,_,_,identity=self.batch_fixture()
+        rows=json.loads(cases.read_text())
+        rows.append(dict(rows[0],id='heldout_two',language='en',text='Hello everyone.'))
+        cases.write_text(json.dumps(rows))
+        self.args.module_args+=['--segmentation-mode','stock-token-v1','--segmented-text-budget','60']
+        with patch.object(g,'CANDIDATE',identity):
+            with self.assertRaisesRegex(ValueError,'Hindi'):
+                g.plan(self.args)
+            self.args.module_args[-1]='120'
+            self.assertEqual(g.plan(self.args)['public']['input_budget']['cases'],2)
+
     def test_segmented_mode_cannot_bypass_frozen_candidate_or_existing_mel_budget(self):
         cases,_,_,identity=self.batch_fixture()
         self.args.module_args+=['--segmentation-mode','stock-token-v1']

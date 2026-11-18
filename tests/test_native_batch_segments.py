@@ -2,6 +2,7 @@
 import ast
 import array
 import copy
+from contextlib import nullcontext
 import importlib.util
 import json
 import os
@@ -85,6 +86,45 @@ class RealStockSegmentsTests(unittest.TestCase):
             self.assertEqual(''.join(text[p['record']['char_start']:p['record']['char_end']] for p in plans), text)
             if text.startswith('क़िला'):
                 self.assertGreater(report['unicode_mark_boundary_count'],0)
+
+    def test_opt_in_60_uses_same_audited_real_split_and_infer_budget(self):
+        import torch
+        text = 'यह एक छोटा परीक्षण है। सभी वाक्यों का पूरा उच्चारण होना चाहिए। भाषा और शब्दों को बदले बिना आवाज़ बननी चाहिए।'
+        tts = copy.copy(self.tts)
+        tts.gpt = copy.copy(tts.gpt)
+        tts.gpt.lang_embedding = SimpleNamespace(num_embeddings=18)
+        with tempfile.TemporaryDirectory(dir=ROOT/'.runtime') as tmp:
+            root = Path(tmp)
+            prompt = root/'prompt-fixture'
+            prompt.write_bytes(b'Identity fixture only; no decoder or generated output')
+            segment_counts = {}
+            for budget in (120, 60):
+                with self.subTest(budget=budget):
+                    output = root/f'budget-{budget}'
+                    output.mkdir()
+                    row = dict(id='hi', language='hi', text=text, prompt=prompt.name,
+                        prompt_sha256=synth.sha256(prompt), max_mel_tokens=512)
+                    args = SimpleNamespace(segmentation_mode=segments.MODE)
+                    tts.infer = lambda **_: None
+                    with patch.object(tts,'infer',side_effect=synth.SynthesisError('fixture stop before audio')) as infer, \
+                         patch.object(batch,'case_resources',return_value={}), \
+                         patch.object(batch,'authored_to_stock',return_value=text), \
+                         patch.object(batch,'reset_seed'), patch.object(torch.cuda,'synchronize'), \
+                         patch.object(segments,'audit_segments',return_value=nullcontext(dict(calls=0,completed=0))):
+                        with self.assertRaisesRegex(ValueError,'fixture stop before audio'):
+                            batch.attempt_case(args,dict(output=output,workspace=root,source=OFFICIAL,text_budget=budget),tts,row,'fixture')
+                    infer.assert_called_once()
+                    self.assertEqual(infer.call_args.kwargs['max_text_tokens_per_segment'],budget)
+                    self.assertEqual(infer.call_args.kwargs['max_mel_tokens'],512)
+                    audit = row['segmentation']
+                    self.assertEqual(audit['max_text_tokens'],budget)
+                    self.assertEqual(audit['body_token_budget'],budget-2)
+                    self.assertTrue(audit['complete_character_coverage'])
+                    self.assertFalse(audit['all_returned_codes_ended_with_eos'])
+                    self.assertFalse(audit['acoustic_output_verified'])
+                    self.assertFalse(any(output.rglob('*.wav')))
+                    segment_counts[budget] = audit['segments']
+            self.assertGreater(segment_counts[60],segment_counts[120])
 
     def test_real_official_punctuation_and_unpunctuated_token_fallback(self):
         for text in ('one two three four five. Next clause. Final clause?', 'क़िला शक्ति भाषा स्वर अक्षर उच्चारण परीक्षण सरल भाषा'):
@@ -226,6 +266,20 @@ class SegmentedMetadataBoundsTests(unittest.TestCase):
             self.assertEqual(rows[0]['text'],text)
             self.assertEqual(path.read_bytes(),payload)
             self.assertFalse(rows[0]['generation_attempted'])
+            for budget in (60,120):
+                self.assertEqual(batch.load_cases(path,root,OFFICIAL,segments.MODE,
+                    segmented_text_budget=budget),(rows,identity))
+                with self.assertRaisesRegex(ValueError,'stock-token-v1'):
+                    batch.load_cases(path,root,OFFICIAL,segmented_text_budget=budget)
+            for budget in ('60',True,61):
+                with self.assertRaisesRegex(ValueError,'60 or 120'):
+                    batch.load_cases(path,root,OFFICIAL,segments.MODE,segmented_text_budget=budget)
+            en=dict(id='fixed-en',language='en',text='This is a test.',prompt='prompt.wav',max_mel_tokens=256)
+            path.write_text(json.dumps([json.loads(payload)[0],en]))
+            self.assertEqual(len(batch.load_cases(path,root,OFFICIAL,segments.MODE,
+                segmented_text_budget=120)[0]),2)
+            with self.assertRaisesRegex(ValueError,'all-Hindi'):
+                batch.load_cases(path,root,OFFICIAL,segments.MODE,segmented_text_budget=60)
 
     def test_optional_caller_pin_rejects_before_runtime_without_changing_unpinned_route(self):
         with tempfile.TemporaryDirectory(dir=ROOT/'.runtime') as tmp:
@@ -261,6 +315,18 @@ args.expected_merged_gpt_sha256='b'*64
 plan,report=b.preflight(args)
 assert report['expected_merged_gpt_sha256']=='b'*64
 assert report['selected_gpt_sha256']=='a'*64
+args.segmentation_mode='stock-token-v1'
+default_plan, default_report=b.preflight(args)
+assert default_plan['text_budget']==120
+assert default_report['segmentation_experiment']['max_text_tokens']==120
+args.segmented_text_budget=120
+explicit_plan, explicit_report=b.preflight(args)
+assert (explicit_plan, explicit_report)==(default_plan, default_report)
+args.segmented_text_budget=60
+short_plan, short_report=b.preflight(args)
+assert short_plan['text_budget']==60
+assert short_report['segmentation_experiment']['max_text_tokens']==60
+assert short_report['cases']==default_report['cases']
 assert not Path(OUTPUT).exists()
 assert 'torch' not in sys.modules
 assert 'indextts.infer_v2_5' not in sys.modules
@@ -300,6 +366,7 @@ class SegmentationCLIContractTests(unittest.TestCase):
             env=dict(os.environ,PYTHONDONTWRITEBYTECODE='1',PYTHONPATH=str(ROOT/'src')))
         self.assertEqual(result.returncode,0,result.stderr)
         self.assertIn('--segmentation-mode {single,stock-token-v1}',result.stdout)
+        self.assertIn('--segmented-text-budget {60,120}',result.stdout)
 
 
 if __name__ == '__main__':

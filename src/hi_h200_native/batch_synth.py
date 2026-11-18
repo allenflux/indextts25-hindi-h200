@@ -29,6 +29,7 @@ from hi_h200.text import normalize_hindi
 LANGUAGES = {"en":0,"zh":1,"es":3,"ja":7,"ar":13,"hi":17}
 OFFICIAL_LANGUAGES = ("zh","en","ja","es","ar")
 SEED, MAX_TEXT_TOKENS = 1234, 120
+SEGMENTED_TEXT_BUDGETS = (60, MAX_TEXT_TOKENS)
 
 
 class FatalBatchError(RuntimeError):
@@ -63,7 +64,11 @@ def canonical_text(source, language, value, segmentation_mode="single"):
     return value
 
 
-def load_cases(path, workspace, source, segmentation_mode="single"):
+def load_cases(path, workspace, source, segmentation_mode="single", *, segmented_text_budget=None):
+    if segmented_text_budget is not None and (
+            segmentation_mode != stock_segments.MODE or type(segmented_text_budget) is not int
+            or segmented_text_budget not in SEGMENTED_TEXT_BUDGETS):
+        raise synth.SynthesisError("An explicit segmented text budget must be 60 or 120 in stock-token-v1 mode")
     path = Path(path).resolve(strict=True)
     if not path.is_relative_to(workspace) or not path.is_file() or not 0 < path.stat().st_size <= 128 * 1024:
         raise synth.SynthesisError("Use a small fixed private case manifest inside WORK")
@@ -79,6 +84,8 @@ def load_cases(path, workspace, source, segmentation_mode="single"):
         uid, language = row["id"], row["language"]
         if not isinstance(uid,str) or not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}",uid) or uid in seen or uid == "runtime" or not isinstance(language,str) or language not in LANGUAGES:
             raise synth.SynthesisError("Unsafe/duplicate case ID or undeclared language")
+        if segmented_text_budget == 60 and language != "hi":
+            raise synth.SynthesisError("The 60-token segmentation probe requires an all-Hindi manifest")
         value = canonical_text(source,language,row["text"],segmentation_mode)
         if "text_sha256" in row and row["text_sha256"] != text_hash(value):
             raise synth.SynthesisError("Authored text SHA256 mismatch")
@@ -108,7 +115,10 @@ def preflight(args):
     manifest = args.model_manifest.resolve(strict=True)
     if not manifest.is_relative_to(original):
         raise synth.SynthesisError("Asset manifest must be inside its original model directory")
-    cases, cases_sha = load_cases(args.cases,workspace,source,getattr(args,"segmentation_mode","single"))
+    explicit_budget = getattr(args,"segmented_text_budget",None)
+    cases, cases_sha = load_cases(args.cases,workspace,source,getattr(args,"segmentation_mode","single"),
+                                segmented_text_budget=explicit_budget)
+    text_budget = MAX_TEXT_TOKENS if explicit_budget is None else explicit_budget
     protected = (source,original,merged,args.cases.resolve(),Path(__file__).resolve().parents[2],
                  *(workspace / row["prompt"] for row in cases))
     output = synth._independent_output(args.output_dir,workspace,protected)
@@ -132,13 +142,13 @@ def preflight(args):
         report["expected_merged_gpt_sha256"] = expected_merged
     if getattr(args, "segmentation_mode", "single") == stock_segments.MODE:
         report["segmentation_experiment"] = {"mode":stock_segments.MODE,
-            "max_segments":stock_segments.MAX_SEGMENTS,"max_text_tokens":MAX_TEXT_TOKENS,
+            "max_segments":stock_segments.MAX_SEGMENTS,"max_text_tokens":text_budget,
             "coverage_policy":"exact complete stock-frontend text; per-segment BPE may retokenize",
             "code_completion_required":"nonempty semantic codes followed by one EOS within each fixed cap",
             "wav_seconds_limit":60,"hindi_characters_limit":240,"quality_verified":False}
     if report["dependencies"]["missing"]:
         report["status"]="metadata_verified_runtime_blocked"
-    return dict(workspace=workspace,source=source,original=original,merged=merged,output=output,config=config,selected=selected,cases_path=args.cases.resolve(strict=True)), report
+    return dict(workspace=workspace,source=source,original=original,merged=merged,output=output,config=config,selected=selected,cases_path=args.cases.resolve(strict=True),text_budget=text_budget), report
 
 
 def save_ledger(output, report):
@@ -238,13 +248,14 @@ def attempt_case(args, plan, tts, row, uuid):
     control = tts.tokenizer.encode(prefix.strip(),allowed_special={prefix.strip()})
     tokens = tts.tokenizer.encode(prefix+actual,allowed_special={prefix.strip()})
     segmented = getattr(args,"segmentation_mode","single") == stock_segments.MODE
+    text_budget = plan["text_budget"]
     segment_plans = None
     if segmented:
-        segment_plans, segment_report = stock_segments.plan_segments(tts,plan["source"],actual,prefix,MAX_TEXT_TOKENS)
+        segment_plans, segment_report = stock_segments.plan_segments(tts,plan["source"],actual,prefix,text_budget)
         row["segmentation"] = segment_report
         expected_calls = len(segment_plans)
     else:
-        if len(control) != 1 or not tokens or tokens[0] != control[0] or any(t in (tts.gpt.start_text_token,tts.gpt.stop_text_token) for t in tokens) or len(tts.split_text_by_tokens(actual,MAX_TEXT_TOKENS,prefix)) != 1:
+        if len(control) != 1 or not tokens or tokens[0] != control[0] or any(t in (tts.gpt.start_text_token,tts.gpt.stop_text_token) for t in tokens) or len(tts.split_text_by_tokens(actual,text_budget,prefix)) != 1:
             raise synth.SynthesisError("Actual tokenization would split or silently strip framing IDs")
         expected_calls = 1
     reset_seed()
@@ -264,7 +275,7 @@ def attempt_case(args, plan, tts, row, uuid):
             with audit as observed:
                 tts.infer(spk_audio_prompt=str(prompt),text=row["text"],output_path=str(partial),lang=row["language"],
                     use_emo_text=False,use_random=False,text_normalization=False,stream_return=False,
-                    max_text_tokens_per_segment=MAX_TEXT_TOKENS,verbose=False,**settings)
+                    max_text_tokens_per_segment=text_budget,verbose=False,**settings)
             torch.cuda.synchronize()
     finally:
         row.update(frontend_verified=observed["calls"]==expected_calls and (not segmented or all(p["record"]["input_verified"] for p in segment_plans)),partial_audio_exists=partial.is_file(),
@@ -387,6 +398,8 @@ def main(argv=None):
     parser.add_argument("--no-kv-cache",action="store_true")
     parser.add_argument("--segmentation-mode",choices=("single",stock_segments.MODE),default="single",
         help="Explicit experiment: official token-based segmentation with complete-text and per-segment EOS auditing")
+    parser.add_argument("--segmented-text-budget",type=int,choices=SEGMENTED_TEXT_BUDGETS,
+        help="Override the stock-token-v1 text budget (default: 120; 60 is an all-Hindi probe)")
     parser.add_argument("--gpu-id",default="0")
     parser.add_argument("--min-free-gpu-mib",type=float)
     parser.add_argument("--min-free-ram-mib",type=float)
