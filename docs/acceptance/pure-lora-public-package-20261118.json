@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "kind": "operator_projection_of_actual_public_package_receipts",
+  "observed_date_utc": "2026-11-18",
+  "candidate": {
+    "profile": "attention_lora_only_v1",
+    "step": 100,
+    "adapter_bytes": 5931907,
+    "adapter_sha256": "15c080715b3b50bf38b33a70f196a9c9e987446e0a6bb87b2e0c8b7835f57dbd",
+    "training_evidence": "pure-lora-pilot48-20261118.json",
+    "quality_verified": false,
+    "production_deployed": false
+  },
+  "code": {
+    "public_source_commit": "33ecef054dd6d5237ef644031964662d5281b692",
+    "training_source_commit": "ed19c4a511be4baafe87b22f74adf6b192a0a55a",
+    "native_evaluation_source_commit": "31fd9fe11d84d5f328afa36c49f363dbe6f9cf24",
+    "builder_sha256": "53acad2f43e3c5fd25c7af4b4cc852f903b58395ffe32e43533bdc8460f50eb2"
+  },
+  "package": {
+    "zip_bytes": 6941415,
+    "zip_sha256": "1ede2c2ebc0a196d7cdb3013941487500d21f02269b790eab8cca8da6e9c29fd",
+    "regular_files": 26,
+    "manifest_sha256": "5835d5f571ea1f70905422d2b91b877b4f49db55d63d9c467a4b97905e862408",
+    "sha256sums_sha256": "0dbe2297447bba4dcd5c65399cfaddb2e7ab40d338e5c626a93b7e1059f48e8b",
+    "model_card_bytes": 19662,
+    "model_card_sha256": "a53f4d2a19fb1743fea92219fc1d1c499096cf848aa65c6c2d385c7cb72becf6",
+    "original_training_manifest_sha256": "11dae1733635a0d46e7edbc7c5444900fed2bbb4450767aa4d2820b2221f0e6f",
+    "zip_crc_and_all_entry_hashes_verified": true,
+    "all_payload_hashes_and_complete_bindings_verified": true,
+    "exact_allowlist_verified": true,
+    "cpu_tensor_only_audit": {
+      "executed_on_pod": true,
+      "restricted_weights_only_load": true,
+      "cuda_used": false,
+      "tensors": 96,
+      "parameters": 1474560,
+      "finite_fp32_A_B_only": true
+    },
+    "independent_package_content_review": "PASS; byte hashes, text/privacy, immutable metadata and complete licenses; not independent GPU or tensor reproduction",
+    "excluded": [
+      "base_or_auxiliary_weights",
+      "audio_or_transcripts",
+      "datasets_or_features",
+      "optimizer_scheduler_rng_or_sampler_state",
+      "private_logs",
+      "credentials"
+    ],
+    "mac_transfer": {
+      "split_parts_verified": true,
+      "full_source_sha_verified": true,
+      "safe_fresh_extraction_verified": true,
+      "original_downloads_preserved": true
+    }
+  },
+  "huggingface_at_last_verified_receipt": {
+    "repository": "fluxa0223/IndexTTS-2.5-Hindi-LoRA-experimental",
+    "public": true,
+    "commit": "920c683afd74b1a90f66ee18f9c4bc6da311bf9f",
+    "files": [
+      ".gitattributes",
+      "README.md"
+    ],
+    "model_card_sha_verified": true,
+    "adapter_uploaded": false,
+    "remote_full_package_integrity_verified": false,
+    "pending": "User must select the audited unpacked package in the existing web upload page; no repeated automatic file chooser attempts."
+  },
+  "documentation": {
+    "confluence_page_id": "11468802",
+    "part_10_published_and_read_back": true,
+    "historical_first_nine_sections_preserved": true,
+    "new_generated_audio_publicly_shared": false
+  },
+  "limits": {
+    "this_receipt_performs_no_training_or_quality_evaluation": true,
+    "test_asr_native_hindi_review_pending": true,
+    "new_pure_lora_t8_and_rtx5090_workflow_pending": true,
+    "repository_creation_or_card_publication_is_not_weight_upload": true
+  }
+}
