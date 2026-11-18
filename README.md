@@ -2,6 +2,8 @@
 
 [产品交付实测与放行结论](docs/PRODUCT_DELIVERY.zh.md)记录真实完整 GPT、5090 三轮切换和 Hindi P0 质量阻塞。
 
+[Hindi 优化阶段记录](docs/HINDI_OPTIMIZATION.zh.md)包含 H200 分段与 ASR 对照，以及独立纯 LoRA 训练的冻结证据。
+
 [换模验收方案 v1.0](docs/REPLACEMENT_ACCEPTANCE.md)覆盖 HI 独立切换、完整 GPT 全量替换、5090 原图测试、质量门槛和回滚。
 
 原创 Hindi 数据工具与实验性原生训练实现，直接调用固定官方模块，不导入或复制未许可社区代码。**当前方向已改为重新训练 Hindi 专用的纯 attention LoRA：原模型文件不改，全部 head/embedding 冻结；HI 使用独立 adapter 实例，旧语言使用从未加载该 adapter 的原模型实例。** 新纯 LoRA 的 H200/BF16 run002 已真实从第2步停止后跨进程恢复至100 updates，并产生 step100 adapter；完整文件 SHA 与受限 CPU tensor 实物审计已核对；固定4例 TRAIN 的真实机制 gate 已通过；冻结pilot候选2/2句native未合并真实WAV及独立file/PCM回读已完成，质量验收仍未完成。另一个独立原始 base 的 pilot48 已真实完成2→100恢复，按预声明VAL8均值最低选出并冻结step100，候选SHA为 `15c080715b3b50bf38b33a70f196a9c9e987446e0a6bb87b2e0c8b7835f57dbd`；2/2句未合并native真实合成已完成，纯LoRA ZIP已实际上传并匿名核验；语音质量验收尚未完成。见 [Hindi 纯 LoRA 方案与进度](docs/HINDI_LORA.md)。
