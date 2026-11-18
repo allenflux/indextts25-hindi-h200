@@ -35,6 +35,7 @@ EVENTS = {'execution_start', 'execution_success', 'execution_error', 'execution_
 NODE_IDS = {str(i) for i in range(1, 9)}
 CONFIG_KEYS = {'format', 'stage_root', 'controller_pid', 'controller_id', 'nonce',
                'prompt', 'prompt_sha256', 'graph_hashes'}
+REVIEWED_CONFIG_KEYS = {'candidate_manifest', 'candidate_manifest_sha256'}
 
 
 def strict_json(raw):
@@ -59,7 +60,7 @@ def load_config(path):
     if len(raw) > 64 * 1024:
         raise ValueError('Bootstrap config grew beyond its bound')
     config = strict_json(raw)
-    if not isinstance(config, dict) or set(config) != CONFIG_KEYS or config['format'] != 'comfy-owned-validation-bootstrap-v1':
+    if not isinstance(config, dict) or set(config) not in (CONFIG_KEYS, CONFIG_KEYS | REVIEWED_CONFIG_KEYS) or config['format'] != 'comfy-owned-validation-bootstrap-v1':
         raise ValueError('Invalid bootstrap schema')
     if type(config['controller_pid']) is not int or config['controller_pid'] <= 1 or config['controller_pid'] != os.getppid():
         raise ValueError('Bootstrap does not belong to its current live controller')
@@ -76,6 +77,14 @@ def load_config(path):
         value = config[name]
         if not isinstance(value, str) or not Path(value).is_absolute() or Path(value).resolve(strict=True) != Path(value):
             raise ValueError('Bootstrap dependencies must be canonical absolute paths')
+    if 'candidate_manifest' in config:
+        if not isinstance(config['candidate_manifest'], str):
+            raise ValueError('Reviewed candidate manifest path must be explicit')
+        manifest = Path(config['candidate_manifest'])
+        if (not isinstance(config['candidate_manifest_sha256'], str) or re.fullmatch('[0-9a-f]{64}', config['candidate_manifest_sha256']) is None
+                or not manifest.is_absolute() or manifest.resolve(strict=True) != manifest or not manifest.is_file() or manifest.stat().st_size > 64 * 1024
+                or synth.sha256(manifest) != config['candidate_manifest_sha256']):
+            raise ValueError('Reviewed candidate manifest differs from the controller pins')
     prompt_info = synth.wav_info(Path(config['prompt']), prompt=True)
     if prompt_info['file_sha256'] != PUBLIC_PROMPT_SHA256:
         raise ValueError('Reviewed public PCM prompt content changed')
@@ -405,7 +414,9 @@ def main():
     config = load_config(config_path)
     bind_parent_lifetime(config['controller_pid'])
     import stage_comfy_validation as staging
-    stage = staging.verify_stage(Path(config['stage_root']))
+    options = ({'candidate_manifest_path': Path(config['candidate_manifest']), 'candidate_manifest_sha256': config['candidate_manifest_sha256']}
+               if 'candidate_manifest' in config else {})
+    stage = staging.verify_stage(Path(config['stage_root']), **options)
     if not config_path.is_relative_to(Path(stage['workspace_root'])) or config_path.is_relative_to(Path(config['stage_root'])):
         raise RuntimeError('Bootstrap config must be a private controller report in WORK outside staged code')
     port = stage['port']

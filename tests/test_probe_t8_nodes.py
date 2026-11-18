@@ -120,6 +120,22 @@ class ProbeTests(unittest.TestCase):
             self.assertEqual(base_report['model_variant'], 'base')
             fake.selected_manifest.assert_called_once_with(node, model, 'a'*40, variant='base')
             self.assertNotIn('manifest_data', report['compatibility'])
+            registration = root / 'reviewed.json';registration.write_text('{}')
+            digest = hashlib.sha256(registration.read_bytes()).hexdigest()
+            args.candidate_revision = None
+            args.candidate_manifest, args.candidate_manifest_sha256 = registration, digest
+            args.model_variant, args.language = 'hindi', 'HI'
+            fake.verify_prepared.reset_mock();fake.selected_manifest.reset_mock()
+            manifest['modelRepository']='local-reviewed/fixture';manifest['modelRevision']='sha256:'+'e'*64
+            manifest['files']['gpt.pth']['sha256']='e'*64
+            fake.selected_manifest.return_value.update(variant='hindi',manifest_data=manifest,
+                selector='reviewed_registration_marker_then_full_sha256')
+            with patch.dict(sys.modules, {'check_t8_compat': fake}):
+                reviewed, _ = probe.preflight(args)
+            fake.verify_prepared.assert_called_once_with(node,None,candidate_manifest_path=registration,candidate_manifest_sha256=digest)
+            fake.selected_manifest.assert_called_once_with(node,model,None,variant='hindi',candidate_manifest_path=registration,candidate_manifest_sha256=digest)
+            self.assertEqual(reviewed['selected_model_identity']['gpt_sha256'],'e'*64)
+            self.assertFalse(reviewed['gpu_executed'])
 
     def test_canonical_dedicated_comfy_output_scratch_preserves_protected_inputs(self):
         with tempfile.TemporaryDirectory(dir=ROOT / '.runtime') as temporary:

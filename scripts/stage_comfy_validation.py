@@ -191,6 +191,21 @@ def python_inventory(root):
     return sorted(values, key=lambda e: e['path'])
 
 
+def candidate_options(args):
+    """Legacy calls remain unchanged; new mode requires the explicit caller pins."""
+    if getattr(args, 'candidate_manifest', None) is None and getattr(args, 'candidate_manifest_sha256', None) is None:
+        return {}
+    require(getattr(args, 'candidate_revision', None) is None, 'Candidate revision and reviewed manifest modes are mutually exclusive')
+    options = compat.candidate_options(args)
+    path, digest = options['candidate_manifest_path'], options['candidate_manifest_sha256']
+    require(path is not None and isinstance(digest, str) and re.fullmatch('[0-9a-f]{64}', digest),
+            'Reviewed candidate manifest path and SHA must both be explicit')
+    path = Path(path).absolute()
+    require(path.resolve(strict=True) == path and path.is_file() and path.stat().st_size <= 64 * 1024,
+            'Reviewed candidate manifest must be a canonical bounded regular file')
+    return {'candidate_manifest_path': path, 'candidate_manifest_sha256': digest}
+
+
 def plan(args, *, _existing_destination=False):
     work, comfy, t8 = (real_directory(value) for value in (args.workspace_root, args.comfy_root, args.t8_root))
     require(work == comfy / 'models' / PROJECT_DIRECTORY, 'WORK must be the dedicated fixed project directory inside the persistent models mount')
@@ -213,7 +228,9 @@ def plan(args, *, _existing_destination=False):
         require(all(observed.get(name) == digest for name, digest in PLUGIN_FILE_PINS[label].items()),
                 'Reviewed plugin definition source changed')
     require(not destination.is_relative_to(t8) and not t8.is_relative_to(destination), 'Stage/T8 overlap is forbidden')
-    identity = compat.verify_prepared(t8, args.candidate_revision)
+    options = candidate_options(args)
+    require(not options or options['candidate_manifest_path'].is_relative_to(work), 'Reviewed candidate manifest must be inside WORK')
+    identity = compat.verify_prepared(t8, args.candidate_revision, **options)
     source = source_record(comfy)
     ops = comfy / 'comfy/ops.py'
     require(ops.is_file(), 'Installed ops.py is missing')
@@ -234,7 +251,7 @@ def plan(args, *, _existing_destination=False):
            '--temp-directory', paths['base'], '--user-directory', paths['user'], '--database-url', 'sqlite:///' + paths['database'],
            '--disable-all-custom-nodes', '--whitelist-custom-nodes', T8_LINK_NAME, *PLUGIN_NAMES.values(),
            '--disable-api-nodes', '--disable-auto-launch', '--cache-none']
-    return {'format': 'comfy-isolated-validation-stage-v1', 'framework_repository': COMFY_REPOSITORY,
+    record = {'format': 'comfy-isolated-validation-stage-v1', 'framework_repository': COMFY_REPOSITORY,
             'framework_revision': COMFY_REVISION, 'workspace_root': str(work), 'destination': str(destination),
             'candidate_revision': args.candidate_revision, 'port': args.port, 'port_reserved': False,
             'paths': paths, 'plugin_roots': roots, 'plugin_python_sources': plugins,
@@ -248,6 +265,11 @@ def plan(args, *, _existing_destination=False):
             'frontend_cache_policy_audit_required': True, 'launch_audit_required': True,
             'runtime_equivalence_verified': False, 'model_assets_verified': False,
             'gpu_executed': False, 'server_launched': False, 'workflow_executed': False}
+    if options:
+        record.update(candidate_manifest=str(options['candidate_manifest_path']),
+                      candidate_manifest_sha256=options['candidate_manifest_sha256'],
+                      candidate_gpt_sha256=identity['manifest_data']['files']['gpt.pth']['sha256'])
+    return record
 
 
 def reviewed_ops(original):
@@ -338,22 +360,36 @@ def stage(args):
     with (root / RECORD_NAME).open('x', encoding='utf-8') as stream:
         json.dump(record, stream, sort_keys=True, indent=2, ensure_ascii=False)
         stream.write('\n'); stream.flush(); os.fsync(stream.fileno())
-    return verify_stage(root)
+    return verify_stage(root, **candidate_options(args))
 
 
-def verify_stage(root: Path):
+def verify_stage(root: Path, *, candidate_manifest_path=None, candidate_manifest_sha256=None):
     root = real_directory(root)
     record = json.loads(bounded(root / RECORD_NAME, MAX_RECORD))
     require(isinstance(record, dict) and record.get('format') == 'comfy-isolated-validation-stage-v1'
             and record.get('framework_revision') == COMFY_REVISION and record.get('framework_repository') == COMFY_REPOSITORY,
             'Stage identity/schema mismatch')
+    reviewed = 'candidate_manifest' in record or 'candidate_manifest_sha256' in record
+    if reviewed:
+        require(candidate_manifest_path is not None and candidate_manifest_sha256 is not None,
+                'Reviewed stage requires independently supplied candidate manifest path and SHA')
+        from types import SimpleNamespace
+        expected = candidate_options(SimpleNamespace(candidate_revision=None,
+            candidate_manifest=candidate_manifest_path, candidate_manifest_sha256=candidate_manifest_sha256))
+        require(record.get('candidate_revision') is None and record.get('candidate_manifest') == str(expected['candidate_manifest_path'])
+                and record.get('candidate_manifest_sha256') == expected['candidate_manifest_sha256'],
+                'Stage reviewed candidate identity differs from caller pins')
+    else:
+        require(candidate_manifest_path is None and candidate_manifest_sha256 is None,
+                'Legacy stage cannot acquire an unrecorded candidate manifest')
     # Rebuild the exact original plan without requiring the already-created
     # destination to be fresh; do not import or execute any referenced source.
     from types import SimpleNamespace
     args = SimpleNamespace(workspace_root=Path(record['workspace_root']), comfy_root=Path(record['plugin_roots']['audio_cache']).parents[1],
         t8_root=Path(record['paths']['t8']), destination=root, candidate_revision=record['candidate_revision'], port=record['port'],
         audio_cache_root=Path(record['plugin_roots']['audio_cache']), audio_crypt_root=Path(record['plugin_roots']['audio_crypt']),
-        preserve_reviewed_ops=record['preserve_reviewed_ops'])
+        preserve_reviewed_ops=record['preserve_reviewed_ops'],
+        candidate_manifest=candidate_manifest_path, candidate_manifest_sha256=candidate_manifest_sha256)
     # A temporary in-process validation parameter, never a public CLI bypass.
     wanted = _existing_plan(args)
     require(json.dumps(record, sort_keys=True, allow_nan=False) == json.dumps(wanted, sort_keys=True, allow_nan=False),
@@ -383,14 +419,19 @@ def main(argv=None):
         command = sub.add_parser(action)
         for name in ('workspace-root', 'comfy-root', 't8-root', 'audio-cache-root', 'audio-crypt-root', 'destination'):
             command.add_argument('--' + name, type=Path, required=True)
-        command.add_argument('--candidate-revision', required=True)
+        selection = command.add_mutually_exclusive_group(required=True)
+        selection.add_argument('--candidate-revision')
+        selection.add_argument('--candidate-manifest', type=Path)
+        command.add_argument('--candidate-manifest-sha256')
         command.add_argument('--port', required=True, type=int)
         command.add_argument('--preserve-reviewed-ops', action='store_true', help='Apply only the exact reviewed fixed-SHA three-line ops compatibility change in the independent copy')
     verify = sub.add_parser('verify')
     verify.add_argument('--stage-root', required=True, type=Path)
+    verify.add_argument('--candidate-manifest', type=Path)
+    verify.add_argument('--candidate-manifest-sha256')
     args = parser.parse_args(argv)
     try:
-        record = verify_stage(args.stage_root) if args.action == 'verify' else stage(args) if args.action == 'stage' else plan(args)
+        record = verify_stage(args.stage_root, **candidate_options(args)) if args.action == 'verify' else stage(args) if args.action == 'stage' else plan(args)
         print(json.dumps({'status': 'verified_cpu_stage' if args.action != 'inspect' else 'verified_cpu_plan',
                           **{k: v for k, v in record.items() if k not in {'framework_source', 'plugin_python_sources'}}},
                          ensure_ascii=False, sort_keys=True))

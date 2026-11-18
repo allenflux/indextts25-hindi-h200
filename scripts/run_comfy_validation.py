@@ -256,7 +256,10 @@ def main(argv=None):
     for name in ('workspace-root','stage-root','base-model','hindi-model','prompt','report-dir'):
         parser.add_argument('--'+name,type=Path,required=True)
     parser.add_argument('--readonly-dependency-root',type=Path,action='append',default=[])
-    parser.add_argument('--candidate-revision',required=True)
+    selection=parser.add_mutually_exclusive_group(required=True)
+    selection.add_argument('--candidate-revision')
+    selection.add_argument('--candidate-manifest',type=Path)
+    parser.add_argument('--candidate-manifest-sha256')
     parser.add_argument('--prompt-sha256',required=True)
     parser.add_argument('--execute',action='store_true'); parser.add_argument('--allow-cuda',action='store_true')
     parser.add_argument('--gpu-id',default='0')
@@ -267,7 +270,8 @@ def main(argv=None):
     args=parser.parse_args(argv)
     try:
         result=run(args)
-        print(json.dumps({'status':result['status'],'quality_verified':False,'runs':[{'case':r['case'],'status':r['status']} for r in result['runs']]},sort_keys=True))
+        print(json.dumps({'status':result['status'],'quality_verified':False,'runs':[{'case':r['case'],'status':r['status']} for r in result['runs']],
+            'actual_model_gpt_sha256':{name:value['gpt_sha256'] for name,value in result.get('models',{}).items()}},sort_keys=True))
         return 0
     except Exception as exc:
         print(json.dumps({'status':'blocked_or_failed','error_type':type(exc).__name__,'reason':str(exc)[:1000]}),file=sys.stderr)
@@ -279,7 +283,10 @@ def preflight(args):
     import check_t8_compat as compat
     workspace=staging.real_directory(args.workspace_root)
     stage_root=staging.real_directory(args.stage_root)
-    stage=staging.verify_stage(stage_root)
+    options=staging.candidate_options(args)
+    if options and not options['candidate_manifest_path'].is_relative_to(workspace):
+        raise ValueError('Reviewed candidate manifest must be inside WORK')
+    stage=staging.verify_stage(stage_root,**options)
     if stage['workspace_root']!=str(workspace) or not stage_root.is_relative_to(workspace) or stage['candidate_revision']!=args.candidate_revision:
         raise ValueError('Staged source/workspace/candidate identity mismatch')
     roots=[workspace]+[staging.real_directory(p) for p in args.readonly_dependency_root]
@@ -293,7 +300,7 @@ def preflight(args):
         raise ValueError('Original and Hindi model directories must be independent')
     identities={}
     for variant,model in models.items():
-        selection=compat.selected_manifest(Path(stage['paths']['t8']),model,args.candidate_revision,variant=variant)
+        selection=compat.selected_manifest(Path(stage['paths']['t8']),model,args.candidate_revision,variant=variant,**options)
         verified=compat.verify_assets(model,selection['manifest_data'])
         manifest=selection['manifest_data']
         identities[variant]={'verified':verified,'repository':manifest['modelRepository'],
@@ -325,6 +332,9 @@ def preflight(args):
             'bounded read-only send_sync and actual registered-loader cache telemetry','strict determinism and TF32 off'],
         'runs':[{'case':c[0],'variant':c[1],'language':c[2],'status':'not_executed',
                  'graph_sha256':digest_json(graphs[i])} for i,c in enumerate(CASES)]}
+    if options:
+        report.update(candidate_manifest_sha256=options['candidate_manifest_sha256'],
+                      candidate_gpt_sha256=identities['hindi']['gpt_sha256'])
     return report,(stage,stage_root,models,prompt,output,graphs)
 
 
@@ -363,11 +373,15 @@ def run(args):
     config={'format':'comfy-owned-validation-bootstrap-v1','stage_root':str(stage_root),
         'controller_pid':os.getpid(),'controller_id':report['controller_id'],'nonce':nonce,
         'prompt':str(prompt),'prompt_sha256':args.prompt_sha256,'graph_hashes':[digest_json(g) for g in graphs]}
+    import stage_comfy_validation as staging
+    options=staging.candidate_options(args)
+    if options:
+        config.update(candidate_manifest=str(options['candidate_manifest_path']), candidate_manifest_sha256=options['candidate_manifest_sha256'])
     config_path=output/'bootstrap.json';atomic_json(config_path,config);config_path.chmod(0o600)
     process=None;owned_ids=set();started=time.monotonic()
     try:
         import stage_comfy_validation as staging
-        staging.verify_stage(stage_root)
+        staging.verify_stage(stage_root,**options)
         with (output/'server.log').open('xb') as log:
             process=subprocess.Popen([stage['paths']['python'],str(ROOT/'scripts/comfy_validation_server.py'),str(config_path)],
                 cwd=stage['paths']['runtime'],env=child_environment(stage,gpu_uuid),stdout=log,stderr=subprocess.STDOUT,

@@ -192,6 +192,10 @@ class ControllerContractTests(unittest.TestCase):
         for event in state['events']: event['prompt_id'] = 'previous-run'
         with self.assertRaises(ValueError): c.evidence(state,self.prompt_id,self.model)
     def test_second_submit_timeout_aborts_cycle_and_cleans_only_owned_state(self):
+        self._second_submit_timeout_fixture()
+    def test_reviewed_manifest_pins_reach_bootstrap_and_second_stage_verification(self):
+        self._second_submit_timeout_fixture(reviewed=True)
+    def _second_submit_timeout_fixture(self, reviewed=False):
         # State-machine fixture only: this is not an observed Comfy/GPU result.
         import stage_comfy_validation as staging
         output = self.home/'controller-report'
@@ -205,6 +209,14 @@ class ControllerContractTests(unittest.TestCase):
             'runs':[{'case':case[0], 'variant':case[1], 'language':case[2], 'status':'not_executed'} for case in c.CASES]}
         args = SimpleNamespace(execute=True,run_timeout=2,startup_timeout=2,max_used_gpu_mib=24576,
                                prompt_sha256='a'*64)
+        registration = self.home/'reviewed.json';registration.write_text('{}')
+        registration_sha = hashlib.sha256(registration.read_bytes()).hexdigest()
+        if reviewed:
+            args.candidate_revision=None;args.candidate_manifest=registration;args.candidate_manifest_sha256=registration_sha
+        configs=[]
+        def spawn_fixture(*unused,**kwargs):
+            configs.append(json.loads((output/'bootstrap.json').read_text()))
+            return process
         alive = {'code':None}
         process = SimpleNamespace(pid=56789,poll=lambda:alive['code'])
         cache = {'model_dir':str(self.model),'model_id':123456,'model_revision':'base-fixture',
@@ -240,8 +252,8 @@ class ControllerContractTests(unittest.TestCase):
             stack.enter_context(patch.object(c,'runtime_gate',return_value={'fixture_only':True}))
             stack.enter_context(patch.object(c.probe,'queue_clear'))
             stack.enter_context(patch.object(c.socket,'socket',return_value=MagicMock()))
-            stack.enter_context(patch.object(staging,'verify_stage',return_value={}))
-            spawn = stack.enter_context(patch.object(c.subprocess,'Popen',return_value=process))
+            verify_stage = stack.enter_context(patch.object(staging,'verify_stage',return_value={}))
+            spawn = stack.enter_context(patch.object(c.subprocess,'Popen',side_effect=spawn_fixture))
             stack.enter_context(patch.object(c,'child_environment',return_value={}))
             owned_http = stack.enter_context(patch.object(c,'OwnedHTTP',return_value=client))
             stack.enter_context(patch('threading.Timer',side_effect=timer_factory))
@@ -273,6 +285,13 @@ class ControllerContractTests(unittest.TestCase):
         self.assertEqual(saved['owned_process_returncode'],-15)
         self.assertNotIn('nonce',json.dumps(saved))
         self.assertFalse(saved['quality_verified'])
+        if reviewed:
+            self.assertEqual(configs[0]['candidate_manifest_sha256'],registration_sha)
+            self.assertEqual(configs[0]['candidate_manifest'],str(registration))
+            verify_stage.assert_called_once_with(self.home/'stage',candidate_manifest_path=registration,candidate_manifest_sha256=registration_sha)
+        else:
+            self.assertNotIn('candidate_manifest',configs[0])
+            verify_stage.assert_called_once_with(self.home/'stage')
 
     def test_shutdown_never_signals_unowned_group(self):
         process = self.process()

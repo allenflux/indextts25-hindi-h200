@@ -2,9 +2,10 @@
 """Inspect pinned T8 code or prepare an isolated experimental Hindi code copy.
 
 No model loading, network, package installation, production edits or GPU work.
-The original manifest remains the base default; the fresh copy selects its
-separate candidate manifest by fixed GPT size, then requires full asset hashes.
-Model assets are NOT staged by this command.
+Historical best100 behavior remains unchanged. Explicit reviewed candidates use
+a SHA-bound registration marker, never a size selector. Every selected model
+requires complete asset hashes. Models are not copied; bind-candidate can write
+one new selector only after all candidate assets pass.
 """
 from __future__ import annotations
 
@@ -293,9 +294,243 @@ def _audit(revision):
             "patched_sha256": dict(PATCHED_SHA256)}
 
 
-def prepare(root: Path, destination: Path, revision: str):
+# Explicit reviewed-candidate mode is separate from the historical fixed best100.
+REVIEWED_MARKER = "T8_REVIEWED_CANDIDATE.json"
+REVIEWED_MANIFEST = "manifests/reviewed_complete_gpt.json"
+REVIEWED_REGISTRATION = "manifests/reviewed_candidate_registration.json"
+REVIEWED_FORMAT = "t8-reviewed-complete-gpt-v1"
+ORIGINAL_GPT_SHA256 = "43a8f4c30eccdf201958d3b9713511482c19d56dc20b0b1c4ee1e6b080b19d85"
+ORIGINAL_GPT_BYTES = 3259599833
+DOWNLOADER_PATH = "services/downloader.py"
+DOWNLOADER_BLOB = "4eadf054e587de4bada954b26a68e7d75434e0b7"
+OFFLINE_ERROR = "受审完整GPT模式禁止自动下载或修复；请离线准备并核验全部26项资产。"
+
+
+def _strict_json(raw):
+    def pairs(items):
+        result = {}
+        for key, value in items:
+            _require(key not in result, "Duplicate candidate JSON key")
+            result[key] = value
+        return result
+    return json.loads(raw, object_pairs_hook=pairs,
+                      parse_constant=lambda _: (_ for _ in ()).throw(CompatibilityError("Nonfinite candidate JSON")))
+
+
+def _encoded(value):
+    return (json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2, allow_nan=False) + "\n").encode()
+
+
+def candidate_options(args):
+    path = getattr(args, "candidate_manifest", None)
+    digest = getattr(args, "candidate_manifest_sha256", None)
+    return {} if path is None and digest is None else {"candidate_manifest_path": path, "candidate_manifest_sha256": digest}
+
+
+def read_registration(path, expected_sha256):
+    _require(path is not None and isinstance(expected_sha256, str) and re.fullmatch(r"[0-9a-f]{64}", expected_sha256),
+             "Explicit candidate registration path and independently recorded SHA256 are both required")
+    raw = _read(Path(path), 64 * 1024)
+    _require(hashlib.sha256(raw).hexdigest() == expected_sha256, "Reviewed registration SHA256 mismatch")
+    value = _strict_json(raw)
+    keys = {"format", "candidate_id", "repository", "revision", "training_profile", "adapter_sha256", "gpt_sha256",
+            "gpt_bytes", "export_complete_sha256", "export_provenance_sha256", "quality_gate_passed"}
+    _require(isinstance(value, dict) and set(value) == keys and value["format"] == REVIEWED_FORMAT,
+             "Unsupported reviewed complete-GPT registration schema")
+    _require(isinstance(value["candidate_id"], str) and re.fullmatch(r"[a-z][a-z0-9_-]{0,79}", value["candidate_id"]), "Unsafe candidate ID")
+    _require(value["training_profile"] == "attention_lora_only_v1" and value["quality_gate_passed"] is False,
+             "Only explicitly experimental pure-attention merged candidates are supported")
+    for name in ("adapter_sha256", "gpt_sha256", "export_complete_sha256", "export_provenance_sha256"):
+        _require(isinstance(value[name], str) and re.fullmatch(r"[0-9a-f]{64}", value[name]), "Invalid candidate digest: " + name)
+    _require(type(value["gpt_bytes"]) is int and 0 < value["gpt_bytes"] <= 8 * 1024**3
+             and value["gpt_sha256"] != ORIGINAL_GPT_SHA256, "Candidate must identify a bounded distinct complete GPT")
+    repository, revision = value["repository"], value["revision"]
+    _require((repository is None and revision is None) or
+             (isinstance(repository, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,95}/[A-Za-z0-9][A-Za-z0-9_.-]{0,95}", repository)
+              and isinstance(revision, str) and re.fullmatch(r"[0-9a-f]{40}", revision)),
+             "Repository/revision must both be null for local artifacts, or an explicitly pinned HF pair")
+    return value, raw
+
+
+def reviewed_candidate_manifest(base, registration):
+    _require(len(base.get("files", {})) == 26 and base["files"].get("gpt.pth", {}).get("sha256") == ORIGINAL_GPT_SHA256
+             and base["files"]["gpt.pth"].get("size") == ORIGINAL_GPT_BYTES, "Pinned original 26-asset base identity differs")
+    result = copy.deepcopy(base)
+    for name, metadata in result["files"].items():
+        if name != "gpt.pth":
+            metadata.setdefault("sourceRepository", base["modelRepository"])
+            metadata.setdefault("sourceRevision", base["modelRevision"])
+    repository = registration["repository"] or "local-reviewed/" + registration["candidate_id"]
+    revision = registration["revision"] or "sha256:" + registration["gpt_sha256"]
+    result.update(modelRepository=repository, modelRevision=revision)
+    result["files"]["gpt.pth"] = {"size": registration["gpt_bytes"], "sha256": registration["gpt_sha256"],
+                                 "sourceRepository": repository, "sourceRevision": revision}
+    result["experimentalDerivative"] = {"format": REVIEWED_FORMAT, "qualityGatePassed": False,
+        "baseModelRepository": base["modelRepository"], "baseModelRevision": base["modelRevision"],
+        "baseGPT": copy.deepcopy(base["files"]["gpt.pth"]), "nodeRepository": NODE_REPOSITORY, "nodeRevision": NODE_REVISION,
+        "trainingProfile": registration["training_profile"], "adapterSHA256": registration["adapter_sha256"],
+        "exportCompleteSHA256": registration["export_complete_sha256"], "exportProvenanceSHA256": registration["export_provenance_sha256"],
+        "fullHashValidationRequired": True, "automaticDownloads": False, "hiAutoTokenLimit": HI_AUTO_TOKEN_LIMIT,
+        "tensorAuditVerifiedByThisTool": False, "scope": "explicit reviewed complete-GPT experiment; not production acceptance"}
+    return result
+
+
+def _insert_guard(source, function, text):
+    first = function.body[0]
+    if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and isinstance(first.value.value, str):
+        first = function.body[1]
+    lines = source.splitlines(keepends=True)
+    lines.insert(first.lineno - 1, "\n".join(" " * first.col_offset + line for line in text.splitlines()) + "\n")
+    return "".join(lines)
+
+
+def reviewed_patch_sources(contents, downloader, registration, registration_sha256):
+    changed = patch_sources(contents)
+    manifest_raw = _encoded(reviewed_candidate_manifest(_strict_json(contents[BASE_MANIFEST]), registration))
+    source = changed["services/model_store.py"].decode()
+    load = _function(ast.parse(source), "load_manifest")
+    selection = f'''def load_manifest(model_dir: Path | str | None = None) -> dict:
+    import stat
+    selected = MANIFEST_PATH
+    expected = {hashlib.sha256(contents[BASE_MANIFEST]).hexdigest()!r}
+    if model_dir is not None:
+        marker = Path(model_dir) / {REVIEWED_MARKER!r}
+        if marker.exists() or marker.is_symlink():
+            if marker.is_symlink() or not stat.S_ISREG(marker.lstat().st_mode) or marker.stat().st_size > 65536:
+                raise ValueError("Invalid reviewed candidate selector")
+            with marker.open("rb") as stream:
+                raw = stream.read(65537)
+            if len(raw) > 65536 or hashlib.sha256(raw).hexdigest() != {registration_sha256!r}:
+                raise ValueError("Candidate selector differs from the reviewed registration")
+            selected = PLUGIN_ROOT / {REVIEWED_MANIFEST!r}
+            expected = {hashlib.sha256(manifest_raw).hexdigest()!r}
+    if selected.is_symlink() or not stat.S_ISREG(selected.lstat().st_mode) or selected.stat().st_size > 131072:
+        raise ValueError("Invalid fixed model manifest")
+    with selected.open("rb") as stream:
+        data = stream.read(131073)
+    if len(data) > 131072 or hashlib.sha256(data).hexdigest() != expected:
+        raise ValueError("Fixed model manifest changed")
+    return json.loads(data.decode("utf-8"))'''
+    source = _replace_span(source, load, selection)
+    function = _function(ast.parse(source), "validate_model_dir")
+    _require("include_auxiliary" in {arg.arg for arg in function.args.kwonlyargs}, "Validator auxiliary contract changed")
+    source = _insert_guard(source, function, "include_auxiliary = True  # Reviewed mode always validates all 26 assets.")
+    report = _one((n for n in ast.parse(source).body if isinstance(n, ast.ClassDef) and n.name == "ValidationReport"), "Missing original validation report")
+    function = _function(report, "require_valid")
+    raised = _one((n for n in ast.walk(function) if isinstance(n, ast.Raise)), "Validation error contract changed")
+    source = _replace_span(source, raised, 'raise FileNotFoundError(' + repr(OFFLINE_ERROR) + ' + str(self.model_dir) + str(self.missing) + str(self.mismatched))')
+    changed["services/model_store.py"] = source.encode()
+    source = changed["nodes_v3.py"].decode()
+    loader = _one((n for n in ast.parse(source).body if isinstance(n, ast.ClassDef) and n.name == "T8IndexTTS25ModelLoader"), "Missing loader")
+    for name, guard in (("validate_inputs", 'if download_missing:\n    return ' + repr(OFFLINE_ERROR)),
+                        ("execute", 'if download_missing:\n    raise ValueError(' + repr(OFFLINE_ERROR) + ')')):
+        function = _function(loader, name)
+        _require("download_missing" in {arg.arg for arg in function.args.args}, "Loader download guard contract changed")
+        source = _insert_guard(source, function, guard)
+        loader = _one((n for n in ast.parse(source).body if isinstance(n, ast.ClassDef) and n.name == "T8IndexTTS25ModelLoader"), "Missing loader")
+    changed["nodes_v3.py"] = source.encode()
+    source = downloader.decode()
+    for name in ("ensure_model_bundle", "download_main_model", "download_auxiliary_models", "_download_hf_file_cancellable"):
+        source = _insert_guard(source, _function(ast.parse(source), name), "raise RuntimeError(" + repr(OFFLINE_ERROR) + ")")
+    # The surviving verify-only CLI must not label the derivative 'official'.
+    literals = [n for n in ast.walk(ast.parse(source)) if isinstance(n, ast.Constant) and isinstance(n.value, str) and "正式模型" in n.value]
+    _require(len(literals) == 3, "Downloader identity wording changed")
+    for node in sorted(literals, key=lambda item: (item.lineno, item.col_offset), reverse=True):
+        message = ("离线校验 IndexTTS 2.5 原版或受审完整GPT；自动下载停用"
+                   if node.value == "下载并校验 IndexTTS 2.5 正式模型" else node.value.replace("正式模型", "原版或受审完整GPT"))
+        source = _replace_span(source, node, repr(message))
+    changed[DOWNLOADER_PATH] = source.encode()
+    for name, value in changed.items():
+        compile(value, name, "exec")
+    return changed, manifest_raw
+
+
+def _reviewed_audit(registration, digest, changed):
+    return {"format": "t8-reviewed-complete-gpt-code-v1", "node_repository": NODE_REPOSITORY, "node_revision": NODE_REVISION,
+        "candidate_repository": registration["repository"], "candidate_revision": registration["revision"],
+        "candidate_gpt_sha256": registration["gpt_sha256"], "candidate_gpt_bytes": registration["gpt_bytes"],
+        "candidate_manifest_sha256": digest, "registration": registration, "manifest": REVIEWED_MANIFEST,
+        "selector_marker": REVIEWED_MARKER, "manifest_selection": "reviewed_registration_marker_then_full_sha256",
+        "source_blobs": dict(PINNED_BLOBS), "original_downloader_blob": DOWNLOADER_BLOB,
+        "patched_sha256": {name: hashlib.sha256(value).hexdigest() for name, value in changed.items()},
+        "quality_gate_passed": False, "production_modified": False, "tensor_audit_verified": False}
+
+
+def _reviewed_originals(root):
+    contents = {name: _read(Path(root) / name) for name in PINNED_BLOBS}
+    for name, blob in PINNED_BLOBS.items():
+        _require(_blob(contents[name]) == blob, "Pinned original source mismatch: " + name)
+    downloader = _read(Path(root) / DOWNLOADER_PATH)
+    _require(_blob(downloader) == DOWNLOADER_BLOB, "Original downloader source differs")
+    return contents, downloader
+
+
+def _original_blob(root, name):
+    # Retain bounded, pinned source preimages to independently recompute the
+    # deterministic patch; these are licensed source, not model weights.
+    return Path(root) / ".reviewed-source" / name
+
+
+def _reviewed_prepare(root, destination, registration_path, digest):
+    registration, raw = read_registration(registration_path, digest)
+    contents, downloader = _reviewed_originals(root)
+    changed, manifest_raw = reviewed_patch_sources(contents, downloader, registration, digest)
+    _copy_pristine(root, destination)
+    destination = Path(destination).absolute()
+    for name, data in {**contents, DOWNLOADER_PATH: downloader}.items():
+        path = _original_blob(destination, name)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("xb") as stream:
+            stream.write(data)
+    for name, value in changed.items():
+        (destination / name).write_bytes(value)
+    for name, data in ((REVIEWED_MANIFEST, manifest_raw), (REVIEWED_REGISTRATION, raw), (AUDIT, _encoded(_reviewed_audit(registration, digest, changed)))):
+        with (destination / name).open("xb") as stream:
+            stream.write(data)
+    return _reviewed_verify(destination, registration_path, digest)
+
+
+def _reviewed_verify(root, registration_path, digest):
+    registration, raw = read_registration(registration_path, digest)
+    root = Path(root).absolute()
+    _require(root.is_dir() and root.resolve(strict=True) == root, "Prepared node root must be canonical")
+    contents, downloader = _reviewed_originals(root / ".reviewed-source")
+    changed, manifest_raw = reviewed_patch_sources(contents, downloader, registration, digest)
+    audit = _reviewed_audit(registration, digest, changed)
+    _require(_read(root / REVIEWED_REGISTRATION, 64 * 1024) == raw and _read(root / REVIEWED_MANIFEST, 128 * 1024) == manifest_raw,
+             "Embedded reviewed manifest/registration changed")
+    _require(_encoded(_strict_json(_read(root / AUDIT, 128 * 1024))) == _encoded(audit), "Reviewed candidate audit differs")
+    for name, data in contents.items():
+        _require(_read(root / name) == changed.get(name, data), "Reviewed prepared source drift: " + name)
+    _require(_read(root / DOWNLOADER_PATH) == changed[DOWNLOADER_PATH], "Reviewed downloader source drift")
+    return {"status": "verified_reviewed_complete_gpt_code_copy", **audit,
+            "model_assets_verified": False, "gpu_tested": False, "manifest_data": _strict_json(manifest_raw),
+            "base_manifest_data": _strict_json(contents[BASE_MANIFEST])}
+
+
+def bind_candidate(root, model_dir, registration_path, digest, workspace):
+    """Only install an explicit selector after every real candidate asset passes."""
+    info = _reviewed_verify(root, registration_path, digest)
+    model_dir, workspace = Path(model_dir).absolute(), Path(workspace).absolute()
+    _require(workspace.is_dir() and workspace.resolve(strict=True) == workspace
+             and re.fullmatch(r"indextts25-hindi-[A-Za-z0-9][A-Za-z0-9_-]{0,127}", workspace.name),
+             "WORK must be a dedicated canonical indextts25-hindi-* project directory")
+    _require(model_dir.resolve(strict=True) == model_dir and model_dir != workspace and model_dir.is_relative_to(workspace),
+             "Selector destination must be a dedicated canonical model directory inside WORK")
+    for protected in (Path(root).resolve(strict=True), Path(registration_path).resolve(strict=True)):
+        _require(not (model_dir == protected or model_dir.is_relative_to(protected) or protected.is_relative_to(model_dir)),
+                 "Selector destination overlaps prepared source or registration")
+    assets = verify_assets(model_dir, info["manifest_data"])
+    _, raw = read_registration(registration_path, digest)
+    marker = model_dir / REVIEWED_MARKER
+    with marker.open("xb") as stream:
+        stream.write(raw); stream.flush(); os.fsync(stream.fileno())
+    return {"status": "reviewed_candidate_marker_installed", "registration_sha256": digest,
+            "assets": assets, "gpu_tested": False, "production_modified": False}
+
+
+def _copy_pristine(root: Path, destination: Path):
     """Copy only the fixed Git archive into a fresh independent code directory."""
-    _revision(revision)
     root = Path(root).absolute()
     inspect_node(root)
     _require(_git(root, "rev-parse", "HEAD").decode().strip() == NODE_REVISION, "Node HEAD is not fixed revision")
@@ -331,7 +566,17 @@ def prepare(root: Path, destination: Path, revision: str):
                 with stream.extractfile(member) as incoming, path.open("xb") as outgoing:
                     _copy_source_entry(incoming, outgoing, member)
     inspect_node(destination)
-    contents = {name: _read(destination / name) for name in PINNED_BLOBS}
+    return {name: _read(destination / name) for name in PINNED_BLOBS}
+
+
+def prepare(root: Path, destination: Path, revision: str | None = None, *,
+            candidate_manifest_path=None, candidate_manifest_sha256=None):
+    if candidate_manifest_path is not None or candidate_manifest_sha256 is not None:
+        _require(revision is None, "Legacy revision and explicit registration are mutually exclusive")
+        return _reviewed_prepare(root, destination, candidate_manifest_path, candidate_manifest_sha256)
+    _revision(revision)
+    contents = _copy_pristine(root, destination)
+    destination = Path(destination).absolute()
     transformed = patch_sources(contents)
     for name, value in transformed.items():
         _require(hashlib.sha256(value).hexdigest() == PATCHED_SHA256.get(name), "Deterministic patch pin mismatch")
@@ -346,7 +591,11 @@ def prepare(root: Path, destination: Path, revision: str):
     return verify_prepared(destination, revision)
 
 
-def verify_prepared(root: Path, candidate_revision: str | None = None):
+def verify_prepared(root: Path, candidate_revision: str | None = None, *,
+                    candidate_manifest_path=None, candidate_manifest_sha256=None):
+    if candidate_manifest_path is not None or candidate_manifest_sha256 is not None:
+        _require(candidate_revision is None, "Legacy revision and explicit registration are mutually exclusive")
+        return _reviewed_verify(root, candidate_manifest_path, candidate_manifest_sha256)
     root = Path(root).absolute()
     _require(root.is_dir() and root.resolve() == root, "Prepared node root must be a real independent directory")
     audit = json.loads(_read(root / AUDIT, 64 * 1024))
@@ -365,8 +614,23 @@ def verify_prepared(root: Path, candidate_revision: str | None = None):
             "gpu_tested": False, "manifest_data": manifest}
 
 
-def selected_manifest(root: Path, model_dir: Path, candidate_revision: str,
-                      *, variant: str | None = None):
+def selected_manifest(root: Path, model_dir: Path, candidate_revision: str | None = None,
+                      *, variant: str | None = None, candidate_manifest_path=None, candidate_manifest_sha256=None):
+    if candidate_manifest_path is not None or candidate_manifest_sha256 is not None:
+        _require(candidate_revision is None, "Legacy revision and explicit registration are mutually exclusive")
+        info = _reviewed_verify(root, candidate_manifest_path, candidate_manifest_sha256)
+        marker = Path(model_dir) / REVIEWED_MARKER
+        selected = "base"
+        if marker.exists() or marker.is_symlink():
+            _require(hashlib.sha256(_read(marker, 64 * 1024)).hexdigest() == candidate_manifest_sha256,
+                     "Model selector differs from the explicitly reviewed registration")
+            selected = "hindi"
+        _require(variant is None or variant in {"base", "hindi"}, "Unknown requested model variant")
+        _require(variant is None or selected == variant, "Reviewed model selector differs from requested variant")
+        manifest = info["manifest_data"] if selected == "hindi" else _strict_json(_read(Path(root) / BASE_MANIFEST))
+        return {"variant": selected, "selector": "reviewed_registration_marker_then_full_sha256",
+                "registration_sha256": candidate_manifest_sha256, "assets_verified": False,
+                "manifest": REVIEWED_MANIFEST if selected == "hindi" else BASE_MANIFEST, "manifest_data": manifest}
     """Select only one of the two reviewed local manifests; this is not authorization.
 
     The caller must subsequently run verify_assets on every selected asset.
@@ -408,19 +672,43 @@ def main(argv=None):
     prep = sub.add_parser("prepare", help="Create a fresh independent code copy; stage no models")
     prep.add_argument("--node-root", required=True, type=Path)
     prep.add_argument("--destination", required=True, type=Path)
-    prep.add_argument("--candidate-revision", required=True)
     verify = sub.add_parser("verify-copy", help="Read-only strict check of the isolated code copy")
     verify.add_argument("--node-root", required=True, type=Path)
-    verify.add_argument("--candidate-revision", required=True)
+    for command in (prep, verify):
+        group = command.add_mutually_exclusive_group(required=True)
+        group.add_argument("--candidate-revision")
+        group.add_argument("--candidate-manifest", type=Path)
+        command.add_argument("--candidate-manifest-sha256")
+    assets = sub.add_parser("verify-assets", help="Read-only full hash validation of the explicitly selected variant")
+    assets.add_argument("--node-root", type=Path, required=True)
+    assets.add_argument("--model-dir", type=Path, required=True)
+    assets.add_argument("--model-variant", choices=("base", "hindi"), required=True)
+    group = assets.add_mutually_exclusive_group(required=True)
+    group.add_argument("--candidate-revision")
+    group.add_argument("--candidate-manifest", type=Path)
+    assets.add_argument("--candidate-manifest-sha256")
+    bind = sub.add_parser("bind-candidate", help="Verify all candidate assets, then write one fresh reviewed selector inside WORK")
+    for name in ("node-root", "model-dir", "workspace-root", "candidate-manifest"):
+        bind.add_argument("--" + name, type=Path, required=True)
+    bind.add_argument("--candidate-manifest-sha256", required=True)
     args = parser.parse_args(argv)
     try:
         if args.action == "inspect":
             result = inspect_node(args.node_root)
         elif args.action == "prepare":
-            result = prepare(args.node_root, args.destination, args.candidate_revision)
+            result = prepare(args.node_root, args.destination, args.candidate_revision, **candidate_options(args))
+        elif args.action == "verify-copy":
+            result = verify_prepared(args.node_root, args.candidate_revision, **candidate_options(args))
+        elif args.action == "verify-assets":
+            selection = selected_manifest(args.node_root, args.model_dir, args.candidate_revision,
+                                          variant=args.model_variant, **candidate_options(args))
+            result = {"selection": {key:value for key,value in selection.items() if key != "manifest_data"},
+                      "assets": verify_assets(args.model_dir, selection["manifest_data"]), "gpu_tested": False}
         else:
-            result = verify_prepared(args.node_root, args.candidate_revision)
+            result = bind_candidate(args.node_root, args.model_dir, args.candidate_manifest,
+                                    args.candidate_manifest_sha256, args.workspace_root)
         result.pop("manifest_data", None)
+        result.pop("base_manifest_data", None)
         print(json.dumps(result, ensure_ascii=False, sort_keys=True))
         return 0
     except (CompatibilityError, OSError, ValueError, subprocess.SubprocessError, tarfile.TarError) as exc:

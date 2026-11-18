@@ -69,6 +69,24 @@ class BootstrapTests(unittest.TestCase):
         self.prompt.write_bytes(b'tampered non-wave content')
         with self.assertRaises(Exception): p.load_config(self.config_path)
 
+    def test_reviewed_bootstrap_config_hash_binding_and_forwarded_stage_pins(self):
+        import stage_comfy_validation as staging
+        registration = self.work / 'reviewed.json';registration.write_text('{}')
+        digest = hashlib.sha256(registration.read_bytes()).hexdigest()
+        self.config.update(candidate_manifest=str(registration),candidate_manifest_sha256=digest)
+        self.config_path.write_text(json.dumps(self.config))
+        self.assertEqual(p.load_config(self.config_path),self.config)
+        with patch.object(p.sys,'argv',['bootstrap',str(self.config_path)]),patch.object(p.sys,'platform','linux'), \
+                patch.object(p,'bind_parent_lifetime'),patch.object(staging,'verify_stage',side_effect=RuntimeError('STOP_BEFORE_RUNTIME_IMPORT')) as verify:
+            with self.assertRaisesRegex(RuntimeError,'STOP_BEFORE_RUNTIME_IMPORT'):p.main()
+        verify.assert_called_once_with(self.core,candidate_manifest_path=registration,candidate_manifest_sha256=digest)
+        self.config['candidate_manifest_sha256']='0'*64
+        self.config_path.write_text(json.dumps(self.config))
+        with self.assertRaisesRegex(ValueError,'controller pins'):p.load_config(self.config_path)
+        del self.config['candidate_manifest_sha256']
+        self.config_path.write_text(json.dumps(self.config))
+        with self.assertRaisesRegex(ValueError,'schema'):p.load_config(self.config_path)
+
     def test_argument_parsing_precedes_cli_import_and_checks_effective_stage_paths(self):
         import stage_comfy_validation as staging
         paths = {name: str(self.work / name) for name in ('base', 'input', 'output', 'user', 'database')}

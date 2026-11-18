@@ -160,8 +160,12 @@ def preflight(args):
     source, model, comfy = (p.resolve(strict=True) for p in paths)
     if not source.is_relative_to(workspace) or not model.is_relative_to(workspace):
         raise ValueError('The isolated node and candidate directory must be inside WORK')
-    audit = compat.verify_prepared(source, args.candidate_revision)
-    selection = compat.selected_manifest(source, model, args.candidate_revision, variant=args.model_variant)
+    from stage_comfy_validation import candidate_options
+    options = candidate_options(args)
+    if options and not options['candidate_manifest_path'].is_relative_to(workspace):
+        raise ValueError('Reviewed candidate manifest must be inside WORK')
+    audit = compat.verify_prepared(source, args.candidate_revision, **options)
+    selection = compat.selected_manifest(source, model, args.candidate_revision, variant=args.model_variant, **options)
     manifest = selection["manifest_data"]
     assets = compat.verify_assets(model, manifest)
     if not (comfy / 'folder_paths.py').is_file() or not (comfy / 'comfy_api').is_dir():
@@ -236,7 +240,9 @@ def execute(args, report, state):
                 raise ValueError('Physical GPU identity changed before generation')
             admission.extend(current)
             import check_t8_compat as compat
-            current_selection = compat.selected_manifest(source, model, args.candidate_revision, variant=args.model_variant)
+            from stage_comfy_validation import candidate_options
+            options = candidate_options(args)
+            current_selection = compat.selected_manifest(source, model, args.candidate_revision, variant=args.model_variant, **options)
             if {k:v for k,v in current_selection.items() if k != "manifest_data"} != report["selected_manifest"]:
                 raise ValueError("Selected model manifest changed after metadata verification")
             compat.verify_assets(model, current_selection["manifest_data"])
@@ -274,7 +280,10 @@ def main(argv=None):
     for name in ('workspace-root', 'node-root', 'model-dir', 'comfy-root', 'prompt', 'output-dir'):
         parser.add_argument('--' + name, required=True, type=Path)
     parser.add_argument('--prompt-sha256', required=True)
-    parser.add_argument('--candidate-revision', required=True, help='Previously verified immutable HF 40-character commit; no network lookup here')
+    selection = parser.add_mutually_exclusive_group(required=True)
+    selection.add_argument('--candidate-revision', help='Previously verified historical HF 40-character commit')
+    selection.add_argument('--candidate-manifest', type=Path, help='Independently reviewed complete-GPT registration')
+    parser.add_argument('--candidate-manifest-sha256')
     parser.add_argument('--text', required=True)
     parser.add_argument('--model-variant', choices=('base', 'hindi'), default='hindi')
     parser.add_argument('--language', choices=('HI', 'ZH', 'EN', 'JA', 'ES', 'AR'), default='HI')

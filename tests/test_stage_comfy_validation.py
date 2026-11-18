@@ -87,13 +87,45 @@ class ComfyStageTests(unittest.TestCase):
         return subprocess.run(['git', '-C', str(self.comfy), *args], check=True,
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE).stdout
 
-    def verify_t8_fixture(self, root, revision):
+    def verify_t8_fixture(self, root, revision, **options):
         # Only the already-tested adjacent verifier's interface is stubbed here.
         # Framework Git authentication and source copying below are real.
         if (Path(root) / 'identity.txt').read_bytes() != b'tiny T8 interface fixture':
             raise p.compat.CompatibilityError('T8 fixture identity drift')
+        if options:
+            p.compat.read_registration(options['candidate_manifest_path'], options['candidate_manifest_sha256'])
+            return {'status':'reviewed_tiny_T8_interface_fixture_only','candidate_revision':None,
+                    'candidate_manifest_sha256':options['candidate_manifest_sha256'],
+                    'manifest_data':{'files':{'gpt.pth':{'sha256':'e'*64}}},'gpu_tested':False}
         return {'status': 'tiny_T8_interface_fixture_only', 'candidate_revision': revision,
                 'manifest_data': {}, 'gpu_tested': False, 'model_assets_verified': False}
+
+    def test_reviewed_stage_requires_external_registration_pins_again_on_verify(self):
+        registration = self.work / 'reviewed.json'
+        value = {'format':'t8-reviewed-complete-gpt-v1','candidate_id':'tiny-interface-fixture',
+            'repository':None,'revision':None,'training_profile':'attention_lora_only_v1',
+            'adapter_sha256':'a'*64,'gpt_sha256':'e'*64,'gpt_bytes':123,
+            'export_complete_sha256':'b'*64,'export_provenance_sha256':'c'*64,'quality_gate_passed':False}
+        registration.write_text(json.dumps(value))
+        digest = hashlib.sha256(registration.read_bytes()).hexdigest()
+        self.args.candidate_revision = None
+        self.args.candidate_manifest = registration
+        self.args.candidate_manifest_sha256 = digest
+        record = p.stage(self.args)
+        self.assertEqual(record['candidate_manifest_sha256'], digest)
+        self.assertEqual(record['candidate_gpt_sha256'], 'e'*64)
+        self.assertIsNone(record['candidate_revision'])
+        with self.assertRaisesRegex(p.StageError,'independently supplied'):
+            p.verify_stage(self.args.destination)
+        self.assertEqual(p.verify_stage(self.args.destination,candidate_manifest_path=registration,
+            candidate_manifest_sha256=digest),record)
+        with self.assertRaisesRegex(p.StageError,'caller pins'):
+            p.verify_stage(self.args.destination,candidate_manifest_path=registration,candidate_manifest_sha256='0'*64)
+        saved = self.args.destination / p.RECORD_NAME
+        altered = json.loads(saved.read_text());altered['candidate_manifest_sha256']='0'*64
+        saved.write_text(json.dumps(altered))
+        with self.assertRaisesRegex(p.StageError,'caller pins'):
+            p.verify_stage(self.args.destination,candidate_manifest_path=registration,candidate_manifest_sha256=digest)
 
     def test_inspect_is_read_only_and_declares_safe_paths_without_launch(self):
         before = sorted(str(path.relative_to(self.home)) for path in self.home.rglob('*'))
