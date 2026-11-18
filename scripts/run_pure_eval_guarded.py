@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Bounded private pure-LoRA evaluation supervisor, never a quality verifier.
 
-Default plans only. --execute permits exactly one of the two named modules,
+Default plans only. --execute permits exactly one of the four named modules,
 without a shell. Queue/resource monitoring may stop only our own child. Read the
 module's actual result/failure separately; exit zero alone is not acceptance.
 """
@@ -25,16 +25,26 @@ sys.path.insert(0, str(ROOT / 'src'))  # Bind parent imports before loading the 
 _spec = importlib.util.spec_from_file_location('_reviewed_pure_training_guard', Path(__file__).with_name('run_pure_lora_guarded.py'))
 shared = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(shared)
-MODULES = {'pure_overfit': 'hi_h200_native.pure_overfit', 'adapter_synth': 'hi_h200_native.adapter_synth'}
+MODULES = {name: 'hi_h200_native.' + name for name in
+           ('pure_overfit', 'adapter_synth', 'batch_synth', 'asr_limited_eval')}
 COMMON = {'workspace-root', 'adapter', 'adapter-sha256', 'output-dir', 'seed'}
 OPTIONS = {'pure_overfit': COMMON | {'dataset', 'max-seconds'},
     'adapter_synth': COMMON | {'official-repo', 'model-dir', 'model-manifest', 'training-base-manifest',
-        'prompt', 'language', 'text', 'max-text-tokens', 'max-mel-tokens'}}
+        'prompt', 'language', 'text', 'max-text-tokens', 'max-mel-tokens'},
+    'batch_synth': {'workspace-root', 'official-repo', 'model-dir', 'model-manifest',
+        'merged-bundle', 'cases', 'output-dir', 'variant'},
+    'asr_limited_eval': {'project-root', 'input', 'model-dir', 'output', 'device'}}
 REQUIRED = {'pure_overfit': COMMON - {'seed'} | {'dataset'},
-    'adapter_synth': COMMON - {'seed'} | {'official-repo', 'model-dir', 'model-manifest', 'training-base-manifest', 'prompt', 'text'}}
-PATH_OPTIONS = {'adapter', 'dataset', 'official-repo', 'model-dir', 'model-manifest', 'training-base-manifest', 'prompt'}
+    'adapter_synth': COMMON - {'seed'} | {'official-repo', 'model-dir', 'model-manifest', 'training-base-manifest', 'prompt', 'text'},
+    'batch_synth': OPTIONS['batch_synth'],
+    'asr_limited_eval': {'project-root', 'input', 'model-dir', 'output'}}
+PATH_OPTIONS = {'adapter', 'dataset', 'official-repo', 'model-dir', 'model-manifest', 'training-base-manifest', 'prompt', 'merged-bundle', 'cases'}
 ADMISSION = ('gpu-id', 'min-free-gpu-mib', 'min-free-ram-mib', 'max-utilization')
 DEADLINE = 600
+CANDIDATE = {'gpt_sha256': 'e87ed7e2f8ea632af261969ee76ab428fdbfe38acaa4e76c785994be63237943',
+    'gpt_bytes': 3259538991,
+    'complete_sha256': '7fed51a055124475d6991cf60efa57167449e080ffaab65683edd67363b56cbc',
+    'provenance_sha256': '6b8e741403ee894611b70deb338a618a16bc1c0dcd8627d3bb9dd42260cdf048'}
 
 
 def require(value, message):
@@ -65,20 +75,95 @@ def module_options(module, argv):
         token = argv[index]
         require(token.startswith('--') and token[2:] in OPTIONS[module], 'Unknown or unsafe module argument')
         name = token[2:]
-        require(name not in values and index + 1 < len(argv), 'Duplicate or missing module argument')
+        repeat = module == 'asr_limited_eval' and name == 'input'
+        require((repeat or name not in values) and index + 1 < len(argv), 'Duplicate or missing module argument')
         value = argv[index + 1]
         require(not value.startswith('--') and '\x00' not in value, 'Invalid module argument value')
-        values[name] = value
+        if repeat:
+            values.setdefault(name, []).append(value)
+            require(len(values[name]) <= 3, 'ASR permits at most three fixed input manifests')
+        else:
+            values[name] = value
         index += 2
     require(REQUIRED[module].issubset(values), 'Missing required module arguments')
-    require(re.fullmatch(r'[0-9a-f]{64}', values['adapter-sha256']), 'Explicit adapter SHA256 required')
+    if 'adapter-sha256' in values:
+        require(re.fullmatch(r'[0-9a-f]{64}', values['adapter-sha256']), 'Explicit adapter SHA256 required')
     if module == 'adapter_synth':
         require(values.get('language', 'hi') == 'hi', 'Only the isolated Hindi synthesis route is permitted')
+    if module == 'batch_synth':
+        require(values['variant'] in {'original', 'merged'}, 'Only original versus the frozen merged candidate is permitted')
+    if module == 'asr_limited_eval':
+        require(values.get('device', 'cpu') in {'cpu', 'cuda'}, 'ASR device must be cpu or cuda')
     return values
 
 
+def bounded_json(path, maximum):
+    from hi_h200.data import load_json
+    require(path.is_file() and 0 < path.stat().st_size <= maximum, 'Missing or oversized private JSON manifest')
+    return load_json(path.read_text(encoding='utf-8'))
+
+
+def batch_inputs(values, work, expected):
+    """Small metadata binding only; child still verifies every real model byte."""
+    from hi_h200_native import batch_synth
+    require(expected == CANDIDATE['gpt_sha256'], 'This round requires the explicit frozen merged GPT SHA256')
+    bundle = Path(values['merged-bundle'])
+    complete, provenance = existing(bundle / 'COMPLETE.json'), existing(bundle / 'provenance.json')
+    document = bounded_json(complete, 128 * 1024)
+    origin = bounded_json(provenance, 2 * 1024 * 1024)
+    require(isinstance(document, dict) and isinstance(document.get('files'), dict) and isinstance(origin, dict),
+            'Invalid frozen candidate metadata schema')
+    require(hashlib.sha256(complete.read_bytes()).hexdigest() == CANDIDATE['complete_sha256']
+            and hashlib.sha256(provenance.read_bytes()).hexdigest() == CANDIDATE['provenance_sha256']
+            and document.get('files', {}).get('gpt.pth') == expected
+            and document.get('files', {}).get('provenance.json') == CANDIDATE['provenance_sha256']
+            and origin.get('kind') == 'hi_h200_native_merged_official_gpt'
+            and origin.get('gpt_sha256') == expected,
+            'Frozen candidate metadata identity mismatch')
+    gpt = existing(bundle / 'gpt.pth')
+    require(gpt.is_file() and gpt.stat().st_size == CANDIDATE['gpt_bytes'], 'Frozen candidate GPT size mismatch')
+    front = existing(Path(values['official-repo']) / 'indextts/utils/front.py')
+    require(front.is_file() and front.stat().st_size <= 1024 * 1024, 'Official frontend rules must be a bounded local file')
+    rows, digest = batch_synth.load_cases(Path(values['cases']), work, Path(values['official-repo']))
+    prompts = [existing(work / row['prompt']) for row in rows]
+    return prompts, {'cases': len(rows), 'cases_manifest_sha256': digest,
+                    'expected_merged_gpt_sha256': expected, 'candidate_weights_verified_by_supervisor': False}
+
+
+def asr_inputs(values, work):
+    from hi_h200_native import asr_limited_eval as asr
+    inputs = [existing(path) for path in values['input']]
+    require(len(set(inputs)) == len(inputs) and all(path.is_relative_to(work) for path in inputs),
+            'ASR manifests must be distinct canonical files inside WORK')
+    for path in inputs:
+        document = bounded_json(path, asr.MAX_MANIFEST_BYTES)
+        rows = document.get('cases') if isinstance(document, dict) else document
+        require(isinstance(rows, list), 'ASR requires a bounded case array')
+        for row in rows:
+            if isinstance(row, dict) and isinstance(row.get('audio'), str):
+                supplied = Path(row['audio'])
+                supplied = (supplied if supplied.is_absolute() else work / supplied).absolute()
+                require(supplied.resolve() == supplied and supplied.is_relative_to(work),
+                        'ASR audio must be canonical inside WORK')
+    rows, identities = asr.load_cases(work, inputs)
+    audio = []
+    for row in rows:
+        if 'audio_path' in row:
+            path = (work / row['audio_path']).absolute()
+            require(path.resolve() == path and path.is_relative_to(work), 'ASR audio must be canonical inside WORK')
+            audio.append(path)
+    model = existing(Path(values['model-dir']) / 'small.pt')
+    require(model.is_file() and model.stat().st_size == asr.base.MODEL_BYTES,
+            'ASR requires the existing fixed-size local small.pt; no download is allowed')
+    values['input'] = [str(path) for path in inputs]
+    values.setdefault('device', 'cpu')
+    return [*inputs, *audio, model], {'cases': len(rows), 'input_manifests': len(identities),
+        'device': values['device'], 'asr_model_sha256': asr.base.MODEL_SHA,
+        'asr_weights_verified_by_supervisor': False, 'download': False}
+
+
 def plan(args):
-    require(args.module in MODULES, 'Only pure_overfit or adapter_synth may be launched')
+    require(args.module in MODULES, 'Only the four explicitly reviewed evaluation modules may be launched')
     require(re.fullmatch(r'(?:\d+|GPU-[A-Za-z0-9-]+)', args.gpu_id), 'One explicit GPU index or UUID is required')
     require(all(math.isfinite(value) for value in (args.min_free_gpu_mib, args.min_free_ram_mib, args.max_utilization))
             and args.min_free_gpu_mib >= 32000 and args.min_free_ram_mib >= 64000 and 0 <= args.max_utilization <= 100,
@@ -88,7 +173,8 @@ def plan(args):
     argv = list(args.module_args)
     if argv[:1] == ['--']: argv.pop(0)
     values = module_options(args.module, argv)
-    require(existing(values['workspace-root']) == work, 'Child and parent WORK must match')
+    work_name = 'project-root' if args.module == 'asr_limited_eval' else 'workspace-root'
+    require(existing(values[work_name]) == work, 'Child and parent WORK must match')
     readonly = [existing(path) for path in args.readonly_dependency_root]
     require(all(path.is_dir() for path in readonly), 'Read-only dependency roots must be existing canonical directories')
     python_roots = [existing(path) for path in args.python_dependency_root]
@@ -110,20 +196,38 @@ def plan(args):
             require(path.is_relative_to(work) or shared_model and any(path.is_relative_to(root) for root in readonly),
                     'Only dataset original-model dependencies may use a declared read-only root')
             protected.append(path)
-    output = fresh(values['output-dir'], work, protected)
+    budget = {}
+    if args.module == 'batch_synth':
+        paths, budget = batch_inputs(values, work, getattr(args, 'expected_merged_gpt_sha256', None))
+        protected.extend(paths)
+    elif args.module == 'asr_limited_eval':
+        paths, budget = asr_inputs(values, work)
+        protected.extend(paths)
+        if values['device'] == 'cuda':
+            require(args.gpu_id.isdecimal() and 0 <= int(args.gpu_id) <= 255,
+                    'ASR CUDA requires a numeric physical GPU index, not a UUID')
+    output_name = 'output' if args.module == 'asr_limited_eval' else 'output-dir'
+    output = fresh(values[output_name], work, protected)
     report_dir = fresh(args.report_dir, work, [*protected, output])
     fresh(output, work, [*protected, report_dir])
-    values.update({'workspace-root': str(work), 'output-dir': str(output)})
-    forwarded = [item for name, value in values.items() for item in ('--' + name, value)]
-    forwarded += ['--execute', '--allow-cuda']
-    for name in ADMISSION:
-        forwarded += ['--' + name, str(getattr(args, name.replace('-', '_')))]
+    values.update({work_name: str(work), output_name: str(output)})
+    forwarded = [item for name, value in values.items() for entry in (value if isinstance(value, list) else [value])
+                 for item in ('--' + name, entry)]
+    forwarded += ['--execute']
+    if args.module == 'asr_limited_eval':
+        if values['device'] == 'cuda':
+            forwarded += ['--allow-cuda', '--gpu-id', args.gpu_id]
+    else:
+        forwarded += ['--allow-cuda']
+        for name in ADMISSION:
+            forwarded += ['--' + name, str(getattr(args, name.replace('-', '_')))]
     command = [sys.executable, '-B', '-m', MODULES[args.module], *forwarded]
     return dict(workspace=work, report_dir=report_dir, module_output=output, command=command, python_roots=python_roots,
         public={'status': 'planned_no_child_started', 'module': MODULES[args.module],
             'module_argv_sha256': hashlib.sha256(json.dumps(forwarded, separators=(',', ':')).encode()).hexdigest(),
             'deadline_seconds': DEADLINE, 'monitor_min_free_gpu_mib': 32000, 'monitor_min_free_ram_mib': 64000,
             'python_dependency_roots_sha256': hashlib.sha256(json.dumps([str(path) for path in python_roots], separators=(',', ':')).encode()).hexdigest(),
+            'input_budget': budget,
             'module_report_verified': False, 'quality_gate_passed': False, 'child_started': False})
 
 
@@ -163,6 +267,7 @@ def execute(args, prepared):
         for number in (signal.SIGTERM, signal.SIGINT):
             previous[number] = signal.signal(number, lambda number, frame: requested.append('controller_signal'))
         with (target / 'stdout.log').open('x') as log:
+            os.chmod(log.name, 0o600)
             child = subprocess.Popen(prepared['command'], stdout=log, stderr=subprocess.STDOUT,
                 stdin=subprocess.DEVNULL, cwd=target, env=child_environment(args.gpu_id, prepared['python_roots']))
             while child.poll() is None:
@@ -210,6 +315,7 @@ def execute(args, prepared):
                     child_exit_code=code, own_child_exited=child.poll() is not None, stop_reason=reason,
                     elapsed_seconds=time.monotonic()-started, samples=samples, comfyui_service_modified=False)
                 shared.write_new(target / 'controller.json', report)
+                os.chmod(target / 'controller.json', 0o600)
     if code == 0 and reason is None: return report, 0
     if code == 3 and args.module == 'pure_overfit' and reason is None: return report, 3
     return report, 2
@@ -218,6 +324,8 @@ def execute(args, prepared):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument('--module', choices=tuple(MODULES), required=True)
+    parser.add_argument('--expected-merged-gpt-sha256',
+                        help='Required for batch_synth: exact frozen candidate GPT SHA256; no other candidate is admitted')
     for name in ('workspace-root', 'report-dir'):
         parser.add_argument('--' + name, type=Path, required=True)
     parser.add_argument('--protect-root', type=Path, action='append', default=[])
