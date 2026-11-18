@@ -32,11 +32,11 @@ OPTIONS = {'pure_overfit': COMMON | {'dataset', 'max-seconds'},
     'adapter_synth': COMMON | {'official-repo', 'model-dir', 'model-manifest', 'training-base-manifest',
         'prompt', 'language', 'text', 'max-text-tokens', 'max-mel-tokens'},
     'batch_synth': {'workspace-root', 'official-repo', 'model-dir', 'model-manifest',
-        'merged-bundle', 'cases', 'output-dir', 'variant'},
+        'merged-bundle', 'cases', 'output-dir', 'variant', 'segmentation-mode'},
     'asr_limited_eval': {'project-root', 'input', 'model-dir', 'output', 'device'}}
 REQUIRED = {'pure_overfit': COMMON - {'seed'} | {'dataset'},
     'adapter_synth': COMMON - {'seed'} | {'official-repo', 'model-dir', 'model-manifest', 'training-base-manifest', 'prompt', 'text'},
-    'batch_synth': OPTIONS['batch_synth'],
+    'batch_synth': OPTIONS['batch_synth'] - {'segmentation-mode'},
     'asr_limited_eval': {'project-root', 'input', 'model-dir', 'output'}}
 PATH_OPTIONS = {'adapter', 'dataset', 'official-repo', 'model-dir', 'model-manifest', 'training-base-manifest', 'prompt', 'merged-bundle', 'cases'}
 ADMISSION = ('gpu-id', 'min-free-gpu-mib', 'min-free-ram-mib', 'max-utilization')
@@ -92,6 +92,8 @@ def module_options(module, argv):
         require(values.get('language', 'hi') == 'hi', 'Only the isolated Hindi synthesis route is permitted')
     if module == 'batch_synth':
         require(values['variant'] in {'original', 'merged'}, 'Only original versus the frozen merged candidate is permitted')
+        require(values.get('segmentation-mode', 'single') in {'single', 'stock-token-v1'},
+                'Batch segmentation mode must be single or stock-token-v1')
     if module == 'asr_limited_eval':
         require(values.get('device', 'cpu') in {'cpu', 'cuda'}, 'ASR device must be cpu or cuda')
     return values
@@ -124,7 +126,7 @@ def batch_inputs(values, work, expected):
     require(gpt.is_file() and gpt.stat().st_size == CANDIDATE['gpt_bytes'], 'Frozen candidate GPT size mismatch')
     front = existing(Path(values['official-repo']) / 'indextts/utils/front.py')
     require(front.is_file() and front.stat().st_size <= 1024 * 1024, 'Official frontend rules must be a bounded local file')
-    rows, digest = batch_synth.load_cases(Path(values['cases']), work, Path(values['official-repo']))
+    rows, digest = batch_synth.load_cases(Path(values['cases']), work, Path(values['official-repo']), segmentation_mode=values.get('segmentation-mode', 'single'))
     prompts = [existing(work / row['prompt']) for row in rows]
     return prompts, {'cases': len(rows), 'cases_manifest_sha256': digest,
                     'expected_merged_gpt_sha256': expected, 'candidate_weights_verified_by_supervisor': False}
@@ -200,6 +202,8 @@ def plan(args):
     if args.module == 'batch_synth':
         paths, budget = batch_inputs(values, work, getattr(args, 'expected_merged_gpt_sha256', None))
         protected.extend(paths)
+        if 'segmentation-mode' in values:
+            budget['segmentation_mode'] = values['segmentation-mode']
     elif args.module == 'asr_limited_eval':
         paths, budget = asr_inputs(values, work)
         protected.extend(paths)

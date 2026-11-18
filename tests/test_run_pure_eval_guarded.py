@@ -165,6 +165,59 @@ class GuardTests(unittest.TestCase):
             (bundle/'provenance.json').write_text('{}')
             with self.assertRaisesRegex(ValueError,'identity mismatch'): g.plan(self.args)
 
+    def test_batch_segmentation_mode_is_optional_and_explicit_modes_are_forwarded_once(self):
+        _,_,_,identity=self.batch_fixture()
+        original=list(self.args.module_args)
+        with patch.object(g,'CANDIDATE',identity):
+            default=g.plan(self.args)
+            self.assertNotIn('--segmentation-mode',default['command'])
+            self.assertNotIn('segmentation_mode',default['public']['input_budget'])
+            for mode in ('single','stock-token-v1'):
+                self.args.module_args=original+['--segmentation-mode',mode]
+                prepared=g.plan(self.args)
+                command=prepared['command']
+                self.assertEqual(command.count('--segmentation-mode'),1)
+                self.assertEqual(command[command.index('--segmentation-mode')+1],mode)
+                self.assertEqual(prepared['public']['input_budget']['segmentation_mode'],mode)
+                self.assertEqual(prepared['public']['input_budget']['expected_merged_gpt_sha256'],identity['gpt_sha256'])
+                self.assertFalse(prepared['public']['module_report_verified'])
+                self.assertFalse(prepared['public']['quality_gate_passed'])
+
+    def test_batch_segmentation_rejects_unknown_duplicate_missing_or_unbounded_controls(self):
+        self.batch_fixture()
+        original=list(self.args.module_args)
+        for extra in (['--segmentation-mode','auto'],['--segmentation-mode','STOCK-TOKEN-V1'],
+                      ['--segmentation-mode',''],['--segmentation-mode'],
+                      ['--segmentation-mode','single','--segmentation-mode','stock-token-v1'],
+                      ['--segmentation-mode=stock-token-v1'],['--max-segments','1000'],
+                      ['--max-text-tokens','1000'],['--experimental-stock-segmentation']):
+            with self.subTest(extra=extra),self.assertRaises(ValueError):
+                g.module_options('batch_synth',original+extra)
+
+    def test_batch_metadata_preflight_receives_the_same_explicit_or_default_mode_as_child(self):
+        from hi_h200_native import batch_synth
+        cases,_,_,identity=self.batch_fixture()
+        original=list(self.args.module_args)
+        for mode in (None,'single','stock-token-v1'):
+            self.args.module_args=original+([] if mode is None else ['--segmentation-mode',mode])
+            with self.subTest(mode=mode), patch.object(g,'CANDIDATE',identity), \
+                 patch.object(batch_synth,'load_cases',return_value=([{'prompt':'prompt.wav'}],'b'*64)) as loader:
+                prepared=g.plan(self.args)
+                loader.assert_called_once_with(cases,self.work,self.source,segmentation_mode=mode or 'single')
+                self.assertEqual(prepared['public']['input_budget']['cases_manifest_sha256'],'b'*64)
+                self.assertEqual(prepared['command'].count('--segmentation-mode'),0 if mode is None else 1)
+
+    def test_segmented_mode_cannot_bypass_frozen_candidate_or_existing_mel_budget(self):
+        cases,_,_,identity=self.batch_fixture()
+        self.args.module_args+=['--segmentation-mode','stock-token-v1']
+        with patch.object(g,'CANDIDATE',identity):
+            self.args.expected_merged_gpt_sha256='f'*64
+            with self.assertRaisesRegex(ValueError,'explicit frozen'):g.plan(self.args)
+            self.args.expected_merged_gpt_sha256=identity['gpt_sha256']
+            rows=json.loads(cases.read_text());rows[0]['max_mel_tokens']=513
+            cases.write_text(json.dumps(rows))
+            with self.assertRaisesRegex(ValueError,'8..512'):g.plan(self.args)
+
     def test_batch_case_count_mel_cap_variant_and_prompt_scope_are_bounded(self):
         cases,prompt,bundle,identity=self.batch_fixture()
         original=json.loads(cases.read_text())

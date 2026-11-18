@@ -21,6 +21,7 @@ import time
 import unicodedata
 import warnings
 from . import synth
+from . import stock_segments
 from .assets import safe_relative
 from hi_h200.data import load_json
 from hi_h200.text import normalize_hindi
@@ -38,7 +39,9 @@ def text_hash(value):
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
-def canonical_text(source, language, value):
+def canonical_text(source, language, value, segmentation_mode="single"):
+    if segmentation_mode not in ("single",stock_segments.MODE):
+        raise synth.SynthesisError("Unknown bounded segmentation mode")
     if not isinstance(value, str) or not 1 <= len(value) <= 240 or any(c in value for c in "<>|"):
         raise synth.SynthesisError("Use bounded plain text without pronunciation/special-token annotations")
     for c in value:
@@ -49,7 +52,7 @@ def canonical_text(source, language, value):
     if canonical != value:
         raise synth.SynthesisError("Manifest text must already be NFC and canonical whitespace")
     if language == "hi":
-        normalize_hindi(value, max_chars=160)  # Preserve marks; keep the established Hindi number policy.
+        normalize_hindi(value, max_chars=240 if segmentation_mode == stock_segments.MODE else 160)  # Preserve marks; keep the established Hindi number policy.
     tree = ast.parse((source / "indextts/utils/front.py").read_text(encoding="utf-8"))
     maps = [ast.literal_eval(n.value) for n in ast.walk(tree) if isinstance(n,ast.Assign) and any(isinstance(t,ast.Attribute) and t.attr=="char_rep_map" for t in n.targets)]
     if len(maps) != 1:
@@ -60,7 +63,7 @@ def canonical_text(source, language, value):
     return value
 
 
-def load_cases(path, workspace, source):
+def load_cases(path, workspace, source, segmentation_mode="single"):
     path = Path(path).resolve(strict=True)
     if not path.is_relative_to(workspace) or not path.is_file() or not 0 < path.stat().st_size <= 128 * 1024:
         raise synth.SynthesisError("Use a small fixed private case manifest inside WORK")
@@ -76,7 +79,7 @@ def load_cases(path, workspace, source):
         uid, language = row["id"], row["language"]
         if not isinstance(uid,str) or not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}",uid) or uid in seen or uid == "runtime" or not isinstance(language,str) or language not in LANGUAGES:
             raise synth.SynthesisError("Unsafe/duplicate case ID or undeclared language")
-        value = canonical_text(source,language,row["text"])
+        value = canonical_text(source,language,row["text"],segmentation_mode)
         if "text_sha256" in row and row["text_sha256"] != text_hash(value):
             raise synth.SynthesisError("Authored text SHA256 mismatch")
         if type(row["max_mel_tokens"]) is not int or not 8 <= row["max_mel_tokens"] <= 512:
@@ -102,7 +105,7 @@ def preflight(args):
     manifest = args.model_manifest.resolve(strict=True)
     if not manifest.is_relative_to(original):
         raise synth.SynthesisError("Asset manifest must be inside its original model directory")
-    cases, cases_sha = load_cases(args.cases,workspace,source)
+    cases, cases_sha = load_cases(args.cases,workspace,source,getattr(args,"segmentation_mode","single"))
     protected = (source,original,merged,args.cases.resolve(),Path(__file__).resolve().parents[2],
                  *(workspace / row["prompt"] for row in cases))
     output = synth._independent_output(args.output_dir,workspace,protected)
@@ -120,6 +123,12 @@ def preflight(args):
         "dependencies":synth.dependency_report(workspace,source),"one_model_constructions":0,"models_loaded":False,
         "synthesis_executed":False,"quality_verified":False,"old_language_regression_verified":False,
         "inference_cache":{"enabled":not args.no_kv_cache,"experimental":args.no_kv_cache,"actual_wrapper_verified":False}}
+    if getattr(args, "segmentation_mode", "single") == stock_segments.MODE:
+        report["segmentation_experiment"] = {"mode":stock_segments.MODE,
+            "max_segments":stock_segments.MAX_SEGMENTS,"max_text_tokens":MAX_TEXT_TOKENS,
+            "coverage_policy":"exact complete stock-frontend text; per-segment BPE may retokenize",
+            "code_completion_required":"nonempty semantic codes followed by one EOS within each fixed cap",
+            "wav_seconds_limit":60,"hindi_characters_limit":240,"quality_verified":False}
     if report["dependencies"]["missing"]:
         report["status"]="metadata_verified_runtime_blocked"
     return dict(workspace=workspace,source=source,original=original,merged=merged,output=output,config=config,selected=selected,cases_path=args.cases.resolve(strict=True)), report
@@ -185,10 +194,13 @@ def audit_gpt_inputs(tts, source, tokens, slot):
         tts.gpt.inference_speech = original
 
 
-def output_audio(path):
+def output_audio(path, segmentation_mode="single"):
+    if segmentation_mode not in ("single",stock_segments.MODE):
+        raise synth.SynthesisError("Unknown bounded segmentation mode")
     info = synth.wav_info(path)
-    if not 1 <= info["seconds"] <= 20:
-        raise synth.SynthesisError("Acceptance audio must be 1..20 seconds; never truncate for ASR")
+    limit = 60 if segmentation_mode == stock_segments.MODE else 20
+    if not 1 <= info["seconds"] <= limit:
+        raise synth.SynthesisError(f"Acceptance audio must be 1..{limit} seconds; never truncate for ASR")
     return info
 
 
@@ -218,8 +230,16 @@ def attempt_case(args, plan, tts, row, uuid):
         raise FatalBatchError("Actual official language slot differs from pinned source")
     control = tts.tokenizer.encode(prefix.strip(),allowed_special={prefix.strip()})
     tokens = tts.tokenizer.encode(prefix+actual,allowed_special={prefix.strip()})
-    if len(control) != 1 or not tokens or tokens[0] != control[0] or any(t in (tts.gpt.start_text_token,tts.gpt.stop_text_token) for t in tokens) or len(tts.split_text_by_tokens(actual,MAX_TEXT_TOKENS,prefix)) != 1:
-        raise synth.SynthesisError("Actual tokenization would split or silently strip framing IDs")
+    segmented = getattr(args,"segmentation_mode","single") == stock_segments.MODE
+    segment_plans = None
+    if segmented:
+        segment_plans, segment_report = stock_segments.plan_segments(tts,plan["source"],actual,prefix,MAX_TEXT_TOKENS)
+        row["segmentation"] = segment_report
+        expected_calls = len(segment_plans)
+    else:
+        if len(control) != 1 or not tokens or tokens[0] != control[0] or any(t in (tts.gpt.start_text_token,tts.gpt.stop_text_token) for t in tokens) or len(tts.split_text_by_tokens(actual,MAX_TEXT_TOKENS,prefix)) != 1:
+            raise synth.SynthesisError("Actual tokenization would split or silently strip framing IDs")
+        expected_calls = 1
     reset_seed()
     torch.cuda.synchronize()
     partial = folder / ".audio.partial.wav"
@@ -232,20 +252,30 @@ def attempt_case(args, plan, tts, row, uuid):
     try:
         with (folder / "official.log").open("x",encoding="utf-8") as log, redirect_stdout(log), redirect_stderr(log), warnings.catch_warnings(record=True) as captured:
             warnings.simplefilter("always")
-            with audit_gpt_inputs(tts,plan["source"],tokens,slot) as observed:
+            audit = (stock_segments.audit_segments(tts,plan["source"],segment_plans,slot,row["max_mel_tokens"])
+                if segmented else audit_gpt_inputs(tts,plan["source"],tokens,slot))
+            with audit as observed:
                 tts.infer(spk_audio_prompt=str(prompt),text=row["text"],output_path=str(partial),lang=row["language"],
                     use_emo_text=False,use_random=False,text_normalization=False,stream_return=False,
                     max_text_tokens_per_segment=MAX_TEXT_TOKENS,verbose=False,**settings)
             torch.cuda.synchronize()
     finally:
-        row.update(frontend_verified=observed["calls"]==1,partial_audio_exists=partial.is_file(),
+        row.update(frontend_verified=observed["calls"]==expected_calls and (not segmented or all(p["record"]["input_verified"] for p in segment_plans)),partial_audio_exists=partial.is_file(),
             elapsed_seconds=time.perf_counter()-started,
             warnings=[{"category":item.category.__name__,"message":str(item.message)[:1000]} for item in captured[:50]])
-    if observed["calls"] != 1:
-        raise synth.SynthesisError("Expected exactly one audited stock generation call")
+        if segmented:
+            row["segmentation"].update(actual_generation_calls=observed["calls"],
+                completed_code_segments=observed.get("completed",0),
+                all_expected_inputs_observed=row["frontend_verified"],
+                all_returned_codes_ended_with_eos=observed.get("completed")==expected_calls,
+                acoustic_output_verified=False)
+    if observed["calls"] != expected_calls or (segmented and observed.get("completed") != expected_calls):
+        raise synth.SynthesisError("Expected every planned stock segment to complete its audited generation call" if segmented else "Expected exactly one audited stock generation call")
     if any("exceeding `max_mel_tokens`" in str(item.message) for item in captured):
         raise synth.SynthesisError("Maximum-code limit hit; partial audio is not success")
-    info = output_audio(partial)
+    info = output_audio(partial,getattr(args,"segmentation_mode","single"))
+    if segmented:
+        row["segmentation"]["acoustic_output_verified"] = True
     os.link(partial,folder / "audio.wav")
     partial.unlink()
     return dict(row,status="generated",reason=None,frontend_verified=True,actual_stock_text=actual,
@@ -346,6 +376,8 @@ def main(argv=None):
     parser.add_argument("--execute",action="store_true")
     parser.add_argument("--allow-cuda",action="store_true")
     parser.add_argument("--no-kv-cache",action="store_true")
+    parser.add_argument("--segmentation-mode",choices=("single",stock_segments.MODE),default="single",
+        help="Explicit experiment: official token-based segmentation with complete-text and per-segment EOS auditing")
     parser.add_argument("--gpu-id",default="0")
     parser.add_argument("--min-free-gpu-mib",type=float)
     parser.add_argument("--min-free-ram-mib",type=float)
