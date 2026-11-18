@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "train_dataset": "native-train.dataset.json",
+  "val_dataset": "native-val.dataset.json",
+  "output_dir": "../runs/native-hi-pilot48-300-new",
+  "loop": {
+    "max_updates": 300,
+    "grad_accumulation": 4,
+    "seed": 260618,
+    "device": "cuda:0",
+    "precision": "bf16",
+    "grad_clip": 1.0,
+    "save_interval": 50,
+    "validation_interval": 50,
+    "max_validation_examples": 8
+  },
+  "optimizer": {
+    "learning_rate": 0.0001,
+    "weight_decay": 0.01,
+    "warmup_updates": 10,
+    "min_lr_ratio": 0.1
+  },
+  "lora": {
+    "rank": 8,
+    "alpha": 16.0,
+    "dropout": 0.0,
+    "text_loss_weight": 0.2,
+    "training_profile": "attention_lora_only_v1"
+  }
+}
