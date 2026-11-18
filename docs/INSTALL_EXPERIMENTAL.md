@@ -1,12 +1,14 @@
-# 独立加载 Hindi best100 实验 GPT
+# 历史安装说明：Hindi best100 完整 GPT
+
+**当前方案已改为 [重新训练 Hindi 专用纯 attention LoRA](HINDI_LORA.md)，直接替换/单候选默认方向已撤回。** 本页保留旧 best100 的下载与加载证据，不是新 adapter 的安装入口；不执行旧 [单模型替换存档](SINGLE_MODEL_UPGRADE.md)中的替换步骤。新 profile 与独立 adapter 推理接口正在实现/验证，尚无新一轮纯 LoRA GPU 训练或质量结果。
 
 当前的 19 WAV 听评 ZIP 是音频与评测资料包，**没有模型权重，不能替换 IndexTTS 2.5**。候选替换的是官方 2.5 的 GPT 子模型，tokenizer、语义 codec、声学后端、声码器等仍使用匹配的官方资产。HF 公开包与本地原始导出格式不同：下文先给公开 **13 文件**下载/加载路线，后面的本地 bundle 路线只用于保留私有完成记录的原导出。
 
-best100 已在 Linux/H200 上由真实官方 2.5 加载、合成并完成有限对照；正式质量 gate 仍为 false。当前质量门槛未过时，现网保留原版，候选在独立环境验收；推荐的后续单模型默认替换见 [Part10](SINGLE_MODEL_UPGRADE.md)。共享 attention 和两个 head 已合并，不能保证一个全局候选 GPT 对旧语言完全无影响。
+旧 best100 已在 Linux/H200 上由真实官方 2.5 加载、合成并完成有限对照；正式质量 gate 仍为 false。它包含共享 attention、两个 head 与 embedding 行的更新，不能关闭 A/B 就恢复原模型；新训练须从已核原始 GPT 开始，所有 head/embedding 冻结。旧语言走从未加载 adapter 的原实例。
 
-RTX5090先完成过四核心节点的两份WAV；后续源码`792305841240072e5a9f2616eb9e387126cae5a2`已在隔离兼容服务完成原版→Hindi→原版三轮真实queue，保持原8节点/5连线，首尾原版WAV和PCM哈希一致。现网插件尚未由本项目部署兼容更新，质量gate仍为false。推荐的5090单模型默认替换、首次插件升级与维护回滚见 [Part10](SINGLE_MODEL_UPGRADE.md)；上述双目录三轮保留为历史验收记录。
+RTX5090先完成过四核心节点的两份WAV；后续源码`792305841240072e5a9f2616eb9e387126cae5a2`已在隔离兼容服务完成原版→Hindi→原版三轮真实queue，保持原8节点/5连线，首尾原版WAV和PCM哈希一致。现网插件尚未由本项目部署兼容更新，质量gate仍为false。上述双目录三轮仅保留为旧 best100 的历史接口验收，不代表新纯 LoRA profile 或普通 ComfyUI LoRA 节点兼容。
 
-新增目标是只保留一套候选运行目录、同T8插件升级后兼容旧模型名和空自定义路径。证据、离线原型、与既有双目录方案的区别及上线门槛见 [Part10：推荐单模型替换](SINGLE_MODEL_UPGRADE.md)。这是有条件方案；本项目尚未生产替换，旧语言质量门槛未通过。
+当前新 adapter 的配置、schema、训练前检查和发布边界统一见 [HINDI_LORA](HINDI_LORA.md)。此前原始模型与旧 best100 发布物保留原身份；新 GitHub/HF 发布需单独核对新训练与验收结果，不覆写旧包。
 
 ## 文件与身份
 

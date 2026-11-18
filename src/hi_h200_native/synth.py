@@ -593,7 +593,7 @@ def configure_kv_cache_experiment(tts, official_repo, *, no_kv_cache=False):
             "quality_improvement_verified":False}
 
 
-def execute_once(args, report, state):
+def execute_once(args, report, state, *, model_setup=None):
     if not args.allow_cuda:
         raise SynthesisError("No actual generation without explicit --allow-cuda")
     if state["output"] is None or state["text"] is None or state["prompt"] is None:
@@ -652,6 +652,9 @@ def execute_once(args, report, state):
             report["model_construction_started"] = True
             tts = constructor(cfg_path=str(config_path), model_dir=str(state["original"]), use_bf16=True,
                               device="cuda:0", **DISABLED_FLAGS)
+            if model_setup is not None:
+                report["admission_gpu_uuid"] = admission[0]["uuid"]
+                report["model_setup"] = model_setup(tts, state, report)
             report["models_loaded"] = True
             report["inference_cache"] = configure_kv_cache_experiment(tts, state["source"], no_kv_cache=args.no_kv_cache)
             if Path(tts.gpt_path).resolve() != selected.resolve() or tts.qwen_emo is not None or tts.use_accel or tts.use_cuda_kernel or tts.use_torch_compile:

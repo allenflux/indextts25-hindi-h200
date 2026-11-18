@@ -1,8 +1,8 @@
-# RTX 5090：Hindi 模型切换的实测与待验收项
+# 历史 RTX 5090：best100 模型切换实测与边界
 
 记录日期：2026-11-17。**已在同一自建 ComfyUI 服务内真实完成原版 ZH→Hindi HI→原版 ZH 三轮 queue 执行，三轮均成功；原 8 个节点 ID/类型与 5 条连线保持，首尾 WAV 文件和 PCM 完全相同。** 通过的是受控隔离环境的工作流与切换接口；Hindi 音质、整句完整性、旧语言无损及生产运行时等价性仍未通过，`quality_verified=false`、`speech_completeness_verified=false`、`framework_runtime_equivalence_verified=false`。没有将兼容副本部署到生产插件或替换原模型。
 
-最新请求的“只保留我们的完整模型、旧工作流默认选择不变”方案和实际参数证据见 [Part10：推荐单模型默认替换](SINGLE_MODEL_UPGRADE.md)。下述双目录回切保留为已验历史及恢复依据；新单模型profile仅CPU核验，尚未GPU/生产部署或通过旧语言质量门槛。
+**当前推荐方向已改为 [重新训练 Hindi 专用纯 attention LoRA](HINDI_LORA.md)，直接替换/单候选默认方案已撤回。** 本页三轮、旧四节点音频、完整 GPT、T8 兼容和命令均属于旧 best100 的历史；不是新纯 LoRA 的训练、推理或 T8 接入验收。现行方案保留原模型，HI 走独立 adapter 实例；旧语言使用从未加载 adapter 的原实例。原 [单模型替换文件](SINGLE_MODEL_UPGRADE.md)仅作历史存档，不照其步骤部署。
 
 ## 最新真实三轮：同进程原版→Hindi→原版
 
@@ -100,7 +100,7 @@ WORK/outputs/base-node-probe-003/audio.wav
 
 原宿主目录的 26 项只读审计发现 25 项完全匹配；唯一配置差异为 `version: 2.0`，隔离模型目录使用固定官方 `version: 2.5` 配置，原目录保持不动。不能凭目录名认定是 2.5。
 
-## 可复用的独立资产与 stage 流程
+## 历史独立资产与 stage 流程（旧 best100）
 
 使用固定源码 `792305841240072e5a9f2616eb9e387126cae5a2`，不覆盖原模型、生产插件或全局升级 Torch。以下变量由操作者填写为真实规范路径；模型、参考和 stage 不能仅凭路径字符串假定跨 Pod 相同。stage 工具当前要求 `WORK` 正好是持久 models 下的专用项目目录：
 
@@ -170,7 +170,7 @@ python scripts/run_comfy_validation.py \
 
 这些是可审阅的保守示例门槛，不是通用资源保证，也不冒称本次私有完整 CLI 的全部原样值。执行需 Linux、充足独立存储、固定依赖与明确 CUDA 开关；控制器不自动接受许可、安装依赖或下载模型。POST 超时不自动重发；部分输出和失败 report 保留，不能当三轮成功。仅允许终止自建子进程，原 ComfyUI 队列只读监视；用户另行授权的定向取消/空闲维护见历史记录。
 
-## 用户工作流如何切换与回滚
+## 历史工作流的切换与回滚证据
 
 本次已证明在隔离兼容副本中，保留 1–8 节点类型/ID、5 条连线及原 loader auto/cache 设置，选择独立原版目录和 `language=ZH`，再选择独立 Hindi 目录和 `language=HI`，最后回到同一原版 cache object，能够真实完成三轮。`custom_model_path` 选择完整目录；没有运行时外挂 LoRA，也没有覆盖整个 IndexTTS 2.5 目录。
 
@@ -214,6 +214,6 @@ CPU 证据按实际快照区分：此前完整 suite **311/311、0 跳过、36.8
 
 第 3 次准入退出后，只读检查确认本项目 controller/bootstrap 没有活动进程；原 ComfyUI 队列接口仍为 HTTP 200，当时有 1 个运行任务、0 个等待任务。该健康快照只证明接口响应与验证进程退出，不证明生产任务或模型质量验收成功。
 
-## 推荐部署方案（Part10）
+## 当前方向：独立 Hindi 纯 LoRA
 
-推荐使用 [单模型默认替换（兼容原工作流）](SINGLE_MODEL_UPGRADE.md)：同一T8插件兼容升级后，只部署一个完整候选运行目录，保留旧模型名与空自定义路径，业务仅按需选择HI或原语言。该手册给出已核5090路径、准备/复制/校验命令、维护替换、重启、验收与冷备回滚。上文双目录三轮保留为历史验证证据，不再作为日常推荐路线；新默认路径GPU与旧语言质量门槛仍待完成，现网未替换。
+按 [HINDI_LORA](HINDI_LORA.md)重新训练 attention-only adapter，原模型文件不改；新 profile 的训练、断点恢复、真实独立推理及路由隔离必须重新验证。旧 best100 的合并 GPT 含 head/embedding 变化，不能改名为纯 LoRA，也不能靠关闭 A/B 完整还原。旧语言继续使用从未加载 adapter 的原模型实例；本页历史短句回切不替代新路线的质量与隔离验证。
