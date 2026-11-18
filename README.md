@@ -12,7 +12,7 @@
 
 **RTX 5090 的隔离完整工作流与同进程原版→Hindi→原版功能验收已通过。** 保留原8节点类型/ID及5条连线，实际依赖的6节点每轮真实执行；auto实际选择CUDA/BF16，原模型缓存保留并复用，首尾原版WAV及PCM完整哈希相同。见[5090切换手册](docs/RTX5090_SWITCHING.md)和[实际回执](docs/acceptance/rtx5090-switch-cycle-20261117.json)。这是固定短样本、隔离兼容路径的接口验证；生产插件尚未部署更新，不保证所有文本/旧语言质量无退化。未修改的T8基线仍拒绝HI及候选原始清单，先需同一插件的一次兼容更新；无需新增LoRA节点，旧模型保持不动。此前两份四节点[生成试听与完整许可](docs/audio/rtx5090-core/README.md)已按用户授权公开，它们与本次三轮回执分开标识。
 
-**单模型默认替换的证据与条件升级方案见 [Part11](docs/SINGLE_MODEL_UPGRADE.md)。** 新离线原型保留旧 `model_name=IndexTTS-2.5` 与空 `custom_model_path`，原语言和HI均选同一完整候选目录；只做CPU准备/校验，未部署或完成该profile的GPU验收。真实权重比较发现456个张量中402相同、54改变，包括48个共享attention投影；旧语言质量接近仍缺充分母语对照，不能据此建议全量替换。
+**单模型默认替换的推荐部署方案与证据见 [Part10](docs/SINGLE_MODEL_UPGRADE.md)。** 新离线原型保留旧 `model_name=IndexTTS-2.5` 与空 `custom_model_path`，原语言和HI均选同一完整候选目录；只做CPU准备/校验，未部署或完成该profile的GPU验收。真实权重比较发现456个张量中402相同、54改变，包括48个共享attention投影；旧语言质量接近仍缺充分母语对照，不能据此建议全量替换。
 
 ## 模型原理与微调依据
 

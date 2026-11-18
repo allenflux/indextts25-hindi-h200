@@ -1,14 +1,14 @@
-# 11. 单模型默认替换：证据、升级方案与上线门槛
+# 10. 推荐方案：单模型默认替换（兼容原工作流）
 
-更新日期：2026-11-18（Asia/Saigon）。用户最新目标是只部署一套我们的完整候选模型，给同一 T8 插件做兼容升级；保留原工作流节点、连线、`model_name="IndexTTS-2.5"` 和空 `custom_model_path`，仅在业务需要时选择 `language=HI`。本节取代第10节“双目录日常路由”作为拟推广目标；第10节保留已验双目录方案与历史回滚说明。**本轮收集证据并准备离线原型，没有部署、重启或替换现网。**
+更新日期：2026-11-18（Asia/Saigon）。**推荐采用一套完整候选模型和同一 T8 插件兼容升级的部署方案。** 保留原工作流节点、连线、`model_name="IndexTTS-2.5"` 和空 `custom_model_path`；业务选择 `language=HI` 时使用印地语，旧语言也使用同一候选。原版可放在运行目录之外作为冷备，不需双模型常驻。**推荐的是部署方式；新默认路径GPU验收及旧语言质量门槛尚未通过，现网尚未替换。**
 
-## 11.1 当前可以下什么结论
+## 10.1 推荐方式与适用边界
 
 工程上可以把合并后的 GPT 做成唯一默认模型，不需要运行时 LoRA 节点，也不依赖原版 GPT 驻留。声学后端等资产仍须匹配，完整 T8 目录是26项资产，候选清单payload共8,290,912,900 bytes（约8.29 GB），HF的13文件发布包本身不够。清单中25项与固定base的size/SHA身份相同，变化项是GPT；这不是按参数数量或音质计算的比例。保留旧选择名称只是兼容工作流字段，加载日志、manifest和缓存身份必须明确显示真实实验候选，不能伪装成官方权重。
 
-**目前证据不足以承诺候选对原支持语言“大致一致”或无损，因此方案是有条件升级，尚不建议全量替换生产默认。** 未改变的声学后端不代表最终声音不变；共享 GPT 的更新会影响其他语言。CPU原型检查、原候选HI已能生成、原版回切成功分别是不同证据。
+**本节推荐单模型默认替换路径；正式全量上线仍以完成GPU接口验收与旧语言质量门槛为前提，目前不能承诺旧语言“大致一致”或无损。** 未改变的声学后端不代表最终声音不变；共享 GPT 的更新会影响其他语言。CPU原型检查、原候选HI已能生成、原版回切成功分别是不同证据。
 
-## 11.2 哪些保留、哪些改变
+## 10.2 哪些保留、哪些改变
 
 | 部分 | 实际情况 | 对“其他语言还是原模型”的含义 |
 |---|---|---|
@@ -39,7 +39,7 @@
 [完整只读审计JSON](acceptance/gpt-parameter-audit-20261118.json) 为2,723 bytes，SHA256 `d95482eb80d5434da7a9449f81738056121925600ebbf9bcedb253431625ea22`；已由正常Kite文件预览独立回读，本地同SHA。审计计时17.157秒（CPU，非推理耗时），`cuda_initialized=false`、`quality_verified=false`。结束时自建审计进程为空，原服务HTTP200、队列0/0；GPU仍654MiB已用、31,457MiB可用、0%利用率。未改生产权重、插件或服务。
 
 
-## 11.3 已有真实音频对照说明了什么
+## 10.3 已有真实音频对照说明了什么
 
 以下严格CER从公开冻结 `evaluation.json` 重新核对，并与本地公开包 `SHA256SUMS` 一致，文件SHA256为 `4bf22df2ffd4e94139e490f6fcd179e752b78f1773143a3a140adb6feecfd139`。指标定义为原定canonical文本的NFC/空白规范化后codepoint编辑率，包含空格；不是母语人工评分。[固定HF评测文件](https://huggingface.co/fluxa0223/IndexTTS-2.5-Hindi-best100-experimental/blob/117c7922e4dcedc3f9885f3f6efa5be8f54c7919/evaluation.json)
 
@@ -56,7 +56,7 @@
 
 RTX5090三轮原版ZH→候选HI→原版ZH已真实完成，首尾原版WAV及PCM哈希相同；**这证明回到原模型恢复该固定短句，不证明候选用ZH输出与原版相同。** 本轮不把这项结果挪作单模型旧语言无损证据。[实际三轮回执](acceptance/rtx5090-switch-cycle-20261117.json)
 
-## 11.4 单模型升级的离线工程原型
+## 10.4 单模型升级的离线工程原型
 
 已实现并CPU核验单候选原型：新工具从真实固定T8 `1ff425ece89ef9824f58f0e4dbfb057991814e88` 创建全新副本，`prepare`及`verify-copy`成功；标准默认路径、原模型名/空自定义路径、26项强制校验、legacy参数和6个禁下载入口均做过CPU检查。真实公开13文件目录作为负例被拒绝（缺少T8清单中的 `bpe.model` 等资产），没有把半套包当完整模型。
 
@@ -89,19 +89,136 @@ python scripts/prepare_t8_single_model.py verify-assets \
 
 `T8_SOURCE`为固定原始Git根；`STAGED_T8_SINGLE`为扫描路径外全新目录、父目录已存在；`CANDIDATE_DIR`为已有完整候选26资产目录。上述命令不准备生产路径或自动迁移任何文件；代码核验通过不等于资产或音质通过。
 
-## 11.5 条件满足后如何上线
+## 10.5 如何直接替换进现有 RTX 5090（推荐）
 
-以下是拟议的受控推广流程；恢复业务默认必须同时满足11.6预先冻结的质量门槛。隔离或小流量的queue功能成功不能替代质量验收；门槛未过时，现网默认继续保留原版。
+以下路径针对本项目已核验的 Linux/RTX5090 环境：ComfyUI根为 `/app/ComfyUI`，原T8目录为 `/app/ComfyUI/custom_nodes/comfyui-indextts25-t8`。完整候选来源是此前6-5验收目录；若换到另一台5090，先确认该目录实际存在、文件已迁移且26项哈希通过，不能假设另一台自动具备它。下面是操作说明，**本轮没有执行生产替换或重启**。
 
-1. 在维护前完成代码/26项资产校验、许可归属和输入检查。部署时只保留一个活动T8插件；原插件和原GPT若保留冷备，应放到扫描与模型发现路径外，不需要双模型常驻。
-2. 暂停目标实例新派单、等待running/pending为0，核实际GPU/RAM/磁盘；用已核对的现有服务管理方式停止旧进程。不得向仍运行的服务原地覆盖权重或插件。
-3. 把已验候选完整目录安装到该实例标准 `models/TTS/IndexTTS-2.5`，同一T8目录安装兼容副本，再由既有启动器启动并刷新schema。不是只扔入一个GPT或覆盖整个ComfyUI；不全局升级Torch/驱动，也不复制隔离验收bootstrap到生产。
-4. 用原工作流、空custompath和旧model_name真实提交旧语言及HI短样本，核定最终WAV、实际候选SHA/revision、队列history和缓存指纹；候选→候选跨语言切换全过程不应加载原GPT。只有这步完成才可称新默认路径已GPU验收。
-5. 质量门槛通过且小流量验收完成后再恢复候选默认派单。业务请求只按语言改 `language`（HI/原语言），不再日常切换两个模型目录；正常业务text/reference仍按原工作流提供。
+| 对象 | 5090 容器内路径 / 最终状态 |
+|---|---|
+| 已有完整候选源 | `/app/ComfyUI/models/indextts25-hindi-acceptance-20261117/portable-assets-001/models/hindi-best100-001` |
+| 新候选唯一运行目录 | `/app/ComfyUI/models/TTS/IndexTTS-2.5` |
+| 兼容插件部署目标 | `/app/ComfyUI/custom_nodes/comfyui-indextts25-t8`；只加载这一份T8 |
+| 暂存与冷备 | `/app/ComfyUI/models/indextts25-single-model-staging-20261118`；放在TTS发现与custom_nodes扫描路径之外 |
+| 工作流节点1 | `model_name="IndexTTS-2.5"`，`custom_model_path=""` |
+| 工作流节点4 | Hindi选择 `language="HI"`；旧语言选择原语言，仍加载同一候选 |
 
-若加载失败或质量不达标，暂停派单并通过既有启动器停止新进程，恢复已核原插件、原模型目录与原工作流引用后重启并验证。没有自动回原模型；只保留一个候选且完全丢弃原文件，会失去快速回滚，必须先解决恢复来源。
+### A. 准备并核验，不动运行中的服务
 
-## 11.6 还缺什么证据才适合全量替换
+先核对剩余磁盘、RAM、真实GPU占用和服务队列；暂存完整候选至少需要约8.29GB额外payload空间，冷备及缓存另计。原宿主配置曾出现 `version:2.0`，不能只凭旧文件夹名直接沿用；必须使用匹配的官方2.5配置与全部资产。以下代码块在同一Shell按顺序执行，保留前面的环境变量。下列准备器不安装依赖、不下载模型、不调用CUDA，固定版本不匹配会停止，不应强行跳过。
+
+```bash
+set -euo pipefail
+export COMFY_ROOT=/app/ComfyUI
+export WORK="$COMFY_ROOT/models/indextts25-single-model-staging-20261118"
+export T8_SOURCE="$COMFY_ROOT/custom_nodes/comfyui-indextts25-t8"
+export STAGED_T8_SINGLE="$WORK/plugin-ready"
+export CANDIDATE_DIR="$COMFY_ROOT/models/indextts25-hindi-acceptance-20261117/portable-assets-001/models/hindi-best100-001"
+export MODEL_READY="$WORK/model-ready"
+
+# WORK 必须是全新目录；已存在时停止，另选新名字，不覆盖历史结果。
+mkdir -- "$WORK"
+git clone https://github.com/allenflux/indextts25-hindi-h200.git "$WORK/toolkit"
+git -C "$WORK/toolkit" checkout --detach 7836954d0f25ce2704be849aa8fa8247327383e9
+python "$WORK/toolkit/scripts/prepare_t8_single_model.py" prepare \
+  --node-root "$T8_SOURCE" --destination "$STAGED_T8_SINGLE" \
+  --candidate-revision 117c7922e4dcedc3f9885f3f6efa5be8f54c7919
+python "$WORK/toolkit/scripts/prepare_t8_single_model.py" verify-assets \
+  --node-root "$STAGED_T8_SINGLE" --model-dir "$CANDIDATE_DIR" \
+  --candidate-revision 117c7922e4dcedc3f9885f3f6efa5be8f54c7919
+```
+
+固定工具commit只取代码仓库（含已公开的小型演示文件），不拉大型模型或语料；当前目标T8须仍是已核固定源码，保留任何本地变更再走适配，不要执行强制reset。将校验过的26项资产复制到全新 `MODEL_READY`，可以使用下面的精确清单复制，避免带入源目录内无关文件；复制后再完整校验。该阶段不写生产目标目录：
+
+```bash
+PYTHONPATH="$WORK/toolkit/scripts" python - <<'COPY_MODEL'
+import os, shutil
+from pathlib import Path
+from prepare_t8_single_model import REVISION, verify_copy, verify_assets
+node = Path(os.environ["STAGED_T8_SINGLE"])
+source = Path(os.environ["CANDIDATE_DIR"])
+target = Path(os.environ["MODEL_READY"])
+info = verify_copy(node, REVISION)
+verify_assets(node, source, REVISION)
+if target.exists() or target.is_symlink():
+    raise SystemExit("MODEL_READY must be fresh")
+target.mkdir(mode=0o700)
+for name in info["manifest_data"]["files"]:
+    destination = target / name
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source / name, destination)
+verify_assets(node, target, REVISION)
+print("26 candidate assets copied and verified; production unchanged")
+COPY_MODEL
+```
+
+新目录还须一并保留[固定公开权重包](https://huggingface.co/fluxa0223/IndexTTS-2.5-Hindi-best100-experimental/tree/117c7922e4dcedc3f9885f3f6efa5be8f54c7919)附带的完整 `LICENSE`、`LICENSE_ZH.txt`、`MODEL_LICENSE`、`DATA_ATTRIBUTION.md`、`NON_ENDORSEMENT.txt` 及模型卡；它们不是26项推理资产的替代品。插件副本保留自身许可证。HF13文件包只有GPT等发布内容，不能用它代替上述26项完整运行目录；本原型自动下载/修复保持禁用，原工作流的 `download_missing=false` 不变。
+
+### B. 维护窗口内替换两个目录
+
+1. 暂停向目标5090派新任务，确认running/pending为0，先备份当前T8、所有本地变更、原工作流JSON和原模型引用。冷备放到扫描/发现路径之外，不能把两份同名T8同时留在 `custom_nodes`。
+2. 用该实例**现有且已核对的启动器**停止旧ComfyUI进程，确保没有模型请求仍在执行。不得热覆盖运行中的权重或插件。本项目未核定该实例的具体服务管理命令，因此不猜测 `kill`、Pod重建或启动命令。
+3. 若生产目标 `/app/ComfyUI/models/TTS/IndexTTS-2.5` 已存在，把它完整移到冷备；再把已验 `MODEL_READY` 安装到该目标，保留整个目录结构、配置与许可。**不是只覆盖一个GPT，也不覆盖整个ComfyUI目录。** 原GPT不参与候选运行，冷备仅用于恢复。
+4. 把旧T8移到冷备，将已验 `STAGED_T8_SINGLE` 安装为 `/app/ComfyUI/custom_nodes/comfyui-indextts25-t8`。不要复制验证stage/core/bootstrap到生产；保留既有Torch/CUDA/ComfyUI及已审ops修正。用同一准备器对最终插件运行 `verify-copy`、对最终模型目录运行 `verify-assets`，任一步失败保持停派单并恢复备份。
+5. 通过既有启动器启动ComfyUI并刷新前端schema。确认 `HI` 出现在同一个生成节点的语言选项中；原节点类型、ID和5条连线不变。模型加载info必须显示真实best100 repository、固定revision `117c7922…` 和GPT SHA `423a8491…`，不能只看到旧的显示名称就认定加载成功。
+
+### B2. 原模型目录不换：直接替换GPT与配置
+
+这是同一单模型方案的最小文件替换方式，可替代上面B的第3步；停服、兼容插件升级和验收步骤仍须执行。**不是在原插件上裸换GPT，也不是热覆盖。** 原模型目录名称和工作流路径字段保持不变，只保留候选作为运行模型，旧GPT放扫描路径外冷备。
+
+适用条件是原目标目录中，除 `gpt.pth`、`config.yaml` 外其余24项已与候选清单逐项匹配。若配置本来就是匹配的官方2.5，只需更新GPT；本项目原宿主曾为 `version:2.0`，所以示例同时复制候选的 `config.yaml`。任何其余资产缺失或不匹配，都应先补齐完整目录并重新核验，不能只换GPT后关闭检查。
+
+先在准备阶段只读核对这24项；这不是完整26项候选校验，也不修改原文件：
+
+```bash
+export MODEL_TARGET="$COMFY_ROOT/models/TTS/IndexTTS-2.5"
+PYTHONPATH="$WORK/toolkit/scripts" python - <<'CHECK_UNCHANGED'
+import os
+from pathlib import Path
+from prepare_t8_single_model import REVISION, compat, verify_copy
+info = verify_copy(Path(os.environ["STAGED_T8_SINGLE"]), REVISION)
+files = {name: data for name, data in info["manifest_data"]["files"].items()
+         if name not in {"gpt.pth", "config.yaml"}}
+assert len(files) == 24
+compat.verify_assets(Path(os.environ["MODEL_TARGET"]), {"files": files})
+print("24 retained assets match; GPT/config and full candidate checks still required")
+CHECK_UNCHANGED
+```
+
+只有在目标ComfyUI进程已通过原启动器停止、队列清空、`MODEL_READY`全部26项已验且冷备目录全新的情况下，才执行下面的文件替换。先记录原文件身份；已有候选不能误作官方原版备份。此代码块只是部署说明，**本轮未在现网执行**：
+
+```bash
+set -euo pipefail
+export DIRECT_BACKUP="$WORK/direct-cold-backup"
+mkdir -m 700 -- "$DIRECT_BACKUP"
+cp -p -- "$MODEL_TARGET/gpt.pth" "$DIRECT_BACKUP/gpt.pth"
+cp -p -- "$MODEL_TARGET/config.yaml" "$DIRECT_BACKUP/config.yaml"
+sha256sum "$DIRECT_BACKUP/gpt.pth" "$DIRECT_BACKUP/config.yaml" > "$DIRECT_BACKUP/SHA256SUMS"
+
+# 避免覆盖已有暂存文件，包括悬空符号链接。
+test ! -e "$MODEL_TARGET/.gpt.single-model-new"
+test ! -L "$MODEL_TARGET/.gpt.single-model-new"
+test ! -e "$MODEL_TARGET/.config.single-model-new"
+test ! -L "$MODEL_TARGET/.config.single-model-new"
+cp -- "$MODEL_READY/gpt.pth" "$MODEL_TARGET/.gpt.single-model-new"
+cp -- "$MODEL_READY/config.yaml" "$MODEL_TARGET/.config.single-model-new"
+mv -- "$MODEL_TARGET/.gpt.single-model-new" "$MODEL_TARGET/gpt.pth"
+mv -- "$MODEL_TARGET/.config.single-model-new" "$MODEL_TARGET/config.yaml"
+python "$WORK/toolkit/scripts/prepare_t8_single_model.py" verify-assets \
+  --node-root "$STAGED_T8_SINGLE" --model-dir "$MODEL_TARGET" \
+  --candidate-revision 117c7922e4dcedc3f9885f3f6efa5be8f54c7919
+```
+
+两次文件rename不是一个跨文件事务；若中途停止或完整校验失败，保持服务停止，从冷备恢复这两个文件并复核原SHA，不可带着半替换状态启动。完整校验成功后，按B第4–5步安装唯一兼容T8、核验最终插件/模型并启动；同时保留模型完整许可与归属。直接替换没有另外的LoRA文件，最终GPT SHA必须为 `423a8491b8856c7c3075254b12defc3ae47dbd9e0de285772523ddd4e9a97021`。
+
+### C. 验收后恢复派单；失败时恢复冷备
+
+用原工作流真实提交旧语言及HI短样本：节点1保持 `IndexTTS-2.5` 和空自定义路径，只按业务选择语言、文本与合法参考音频。检查真实queue history、最终WAV、候选SHA/revision、缓存指纹与显存；各语言都应使用候选，不能回退原GPT后冒充单模型通过。同路径升级必须使用新进程，不能拿旧缓存的结果当替换成功。
+
+该新默认路径的GPU验收和10.6的旧语言质量门槛通过、再完成小流量检查后，才恢复候选默认派单。日常无需切模型目录或另挂LoRA节点；加载和质量未过时，现网默认仍保留原版。
+
+回滚时暂停派单、通过同一启动器停止新进程，把原插件、原完整模型目录与原工作流引用从冷备恢复，再重启并核验。没有自动回原GPT；完全丢弃原文件会失去快速恢复来源，部署前须先明确冷备或原版重建来源。
+
+## 10.6 还缺什么证据才适合全量替换
 
 目前已有证据足以编写和CPU验证升级原型，**不足以批准所有旧语言的默认模型替换**。下一轮应在生成前冻结方案：五种原语言各选短句、数字/标点句、较长分段句各1条，共15对原版/候选；每种语言使用来源/使用权清楚的native-language参考，成对固定text、reference、seed和全部采样配置，不挑好例、不重选checkpoint。缺少合法母语参考时记录缺口，不能拿Hindi参考补齐后称母语回归。
 
